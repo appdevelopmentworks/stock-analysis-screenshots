@@ -5,7 +5,22 @@ import { InitSentry } from '@/components/InitSentry'
 export const metadata: Metadata = {
   title: 'Screenshot Trade Advisor',
   description: 'Analyze chart/orderbook screenshots for trade ideas',
-  icons: [{ rel: 'icon', url: '/icons/icon-192.png' }],
+  icons: {
+    icon: '/StockAnalysisScreenshots.png',
+    apple: '/StockAnalysisScreenshots.png',
+  },
+  openGraph: {
+    type: 'website',
+    title: 'Screenshot Trade Advisor',
+    description: 'Analyze chart/orderbook screenshots for trade ideas',
+    images: [{ url: '/StockAnalysisScreenshots.png' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Screenshot Trade Advisor',
+    description: 'Analyze chart/orderbook screenshots for trade ideas',
+    images: ['/StockAnalysisScreenshots.png'],
+  },
   manifest: '/manifest.json',
 }
 

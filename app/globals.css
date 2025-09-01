@@ -5,24 +5,35 @@
 /* Theme tokens */
 :root {
   color-scheme: light dark;
-  /* High-readable default (prefers dark) */
-  --background: #0d1117;   /* GitHub dark */
-  --foreground: #e6edf3;   /* High-contrast text */
-  --card: #161b22;         /* Slightly lighter than bg */
-  --border: #2d333b;       /* Subtle but visible */
+  /* Light (default) */
+  --background: #ffffff;
+  --foreground: #0f172a;        /* slate-900 */
+  --muted-foreground: #475569;  /* slate-600 */
+  --card: #ffffff;
+  --border: #e2e8f0;            /* slate-200 */
+  --primary: #1d4ed8;           /* blue-700 (AA on white) */
+  --primary-foreground: #ffffff;
+  --link: #0ea5e9;              /* sky-500 */
 }
 .light {
-  /* Softer light theme with strong text contrast */
-  --background: #f8fafc;   /* slate-50 */
-  --foreground: #0f172a;   /* slate-900 */
-  --card: #ffffff;         /* pure white cards */
-  --border: #e2e8f0;       /* slate-200 */
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --muted-foreground: #475569;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --primary: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --link: #0ea5e9;
 }
 .dark {
-  --background: #0d1117;
-  --foreground: #e6edf3;
-  --card: #161b22;
-  --border: #2d333b;
+  --background: #0b1220;        /* deep navy */
+  --foreground: #e6edf3;        /* high contrast */
+  --muted-foreground: #b6c2d2;  /* softer text */
+  --card: #131c2b;              /* slightly raised */
+  --border: #263244;            /* visible border */
+  --primary: #60a5fa;           /* light blue for dark bg */
+  --primary-foreground: #0b1220;
+  --link: #7dd3fc;              /* sky-300 */
 }
 
 /* Utility classes to bridge Tailwind-style names */
@@ -30,6 +41,9 @@
 .text-foreground { color: var(--foreground) }
 .bg-card { background-color: var(--card) }
 .border-default { border-color: var(--border) }
+.text-muted { color: var(--muted-foreground) }
+.bg-primary { background-color: var(--primary) }
+.text-link { color: var(--link) }
 
 html, body, #__next { height: 100% }
 

@@ -37,9 +37,9 @@ export function ResultPane({ data, meta }: Props) {
         </div>
       </div>
       <div className="text-sm">結論: <b>{decision}</b>（{horizon}）<span className="ml-2 text-xs text-neutral-500">トーン: {tone}</span></div>
-      <div className="prose prose-invert max-w-none">
+      <div className="max-w-none">
         {/* naive markdown rendering: pre for now */}
-        <pre className="bg-neutral-900 text-neutral-100 p-3 rounded overflow-auto text-xs whitespace-pre-wrap">{md}</pre>
+        <pre className="bg-card text-foreground border border-default p-3 rounded overflow-auto text-sm whitespace-pre-wrap">{md}</pre>
       </div>
       { (scenarios.base || scenarios.bull || scenarios.bear) && (
         <div className="grid gap-3">
@@ -65,7 +65,7 @@ export function ResultPane({ data, meta }: Props) {
       )}
       <details>
         <summary className="cursor-pointer select-none text-sm">JSON 詳細</summary>
-        <pre className="bg-neutral-900 text-neutral-100 p-3 rounded overflow-auto text-xs">{JSON.stringify(data, null, 2)}</pre>
+        <pre className="bg-card text-foreground border border-default p-3 rounded overflow-auto text-xs">{JSON.stringify(data, null, 2)}</pre>
       </details>
     </div>
   )

@@ -199,10 +199,10 @@ export default function Page() {
         </Button>
         {progress && (
           <div className="w-full">
-            <div className="h-2 rounded bg-neutral-800 overflow-hidden">
-              <div className="h-full bg-blue-600" style={{ width: `${progress.pct}%` }} />
+            <div className="h-2 rounded border border-default overflow-hidden">
+              <div className="h-full bg-primary" style={{ width: `${progress.pct}%` }} />
             </div>
-            <div className="text-xs text-neutral-500 mt-1">{progress.msg ?? '処理中...'}</div>
+            <div className="text-xs text-muted mt-1">{progress.msg ?? '処理中...'}</div>
           </div>
         )}
         {errorMsg && (
