@@ -1,11 +1,11 @@
 import type { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 
 export function middleware(req: NextRequest) {
-  const res = new Response(null, { status: 204 })
-  // Apply CSP only to document navigation requests (HTML). For APIs/Assets it is harmless but we restrict to paths.
+  const res = NextResponse.next()
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js dev needs unsafe-eval; in prod you can tighten with nonce
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
@@ -28,4 +28,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|api).*)',
   ],
 }
-

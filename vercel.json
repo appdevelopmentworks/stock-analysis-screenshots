@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "app/api/**/*.ts": {
-      "runtime": "edge"
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
@@ -15,4 +10,3 @@
     }
   ]
 }
-
