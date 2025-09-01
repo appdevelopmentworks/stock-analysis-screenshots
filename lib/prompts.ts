@@ -17,11 +17,14 @@ Use null for unknown numeric fields. No extra text.
 `
 
 export const decisionPrompt = `
-You are an analyst. Using extracted features (trend, SR, volume, orderbook pressure), output a decision JSON
-with fields: decision, horizon, rationale[<=5], levels{entry,sl,tp[],sr}, confidence, notes[], and scenarios.
-scenarios must include base, bull, bear each with: {conditions, entry, sl, tp[], rationale[], rr} (omit unknowns).
-Only recommend buy/sell when trend aligns with confirming signals; otherwise hold. Include invalidation in sl.
-Return ONLY JSON as specified.
+You are an analyst. Using extracted features (trend, SR, volume, orderbook pressure), output a decision JSON.
+
+REQUIREMENTS (very important):
+- Language: Japanese (日本語) for all human-readable text fields (rationale, notes, scenarios.*.conditions/rationale). Use concise, natural Japanese.
+- Fields: decision, horizon, rationale[<=5], levels{entry,sl,tp[],sr}, confidence, notes[], and scenarios.
+- Scenarios: include base, bull, bear with {conditions, entry, sl, tp[], rationale[], rr} (omit unknowns).
+- Policy: Only recommend buy/sell when trend aligns with confirming signals; otherwise hold. Put invalidation price in sl.
+- Output: Return ONLY JSON as specified. No extra commentary.
 `
 
 export type PromptProfile = 'default' | 'strict' | 'verbose'
