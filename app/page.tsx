@@ -18,10 +18,12 @@ export default function Page() {
   const [lastMeta, setLastMeta] = useState<any>(null)
   const [progress, setProgress] = useState<{pct:number,msg?:string}|null>(null)
   const [qualityHints, setQualityHints] = useState<string[]>([])
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   async function onAnalyze() {
     setLoading(true)
     setPhase('idle')
+    setErrorMsg(null)
     try {
       const fd = new FormData()
       // Preprocess images if enabled
@@ -48,16 +50,26 @@ export default function Page() {
       pre.forEach(f => fd.append('files', f))
       // Load client settings to pass keys and preferences
       const runtime = typeof window !== 'undefined' ? JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || '{}') : {}
+      if (!runtime?.groqKey && !runtime?.openaiKey) {
+        setLoading(false)
+        setProgress(null)
+        setErrorMsg('APIキーが未復号です。設定を開き、PINで「復号（使用可能に）」を押してください。')
+        return
+      }
       const meta: any = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider: settings?.provider ?? 'groq', promptProfile: settings?.promptProfile ?? 'default' }
       if (settings?.uiSource && settings.uiSource !== 'Auto') meta.uiSource = settings.uiSource
       if (!meta.uiSource && autoUi && autoUi !== 'Unknown') meta.uiSource = autoUi
       setLastMeta(meta)
       fd.append('meta', JSON.stringify(meta))
-      const headers: Record<string, string> = { 'X-Stream': '1' }
+      // iOS Safari は fetch のSSEストリーミングが不安定なためオフにする
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+      const isiOS = /iPhone|iPad|iPod/.test(ua)
+      const headers: Record<string, string> = {}
+      if (!isiOS) headers['X-Stream'] = '1'
       if (runtime?.groqKey) headers['X-API-Key'] = runtime.groqKey
       if (runtime?.openaiKey) headers['X-OpenAI-Key'] = runtime.openaiKey
       const res = await fetch('/api/analyze', { method: 'POST', body: fd, headers })
-      const isStream = (res.headers.get('content-type') || '').includes('text/event-stream')
+      const isStream = (res.headers.get('content-type') || '').includes('text/event-stream') && !isiOS
       if (isStream && res.body) {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
@@ -155,6 +167,10 @@ export default function Page() {
           }
         }
       } else {
+        if (!res.ok) {
+          const txt = await res.text()
+          throw new Error(`API error ${res.status}: ${txt}`)
+        }
         const data = await res.json()
         setResult(data)
         setPhase('done')
@@ -187,6 +203,11 @@ export default function Page() {
               <div className="h-full bg-blue-600" style={{ width: `${progress.pct}%` }} />
             </div>
             <div className="text-xs text-neutral-500 mt-1">{progress.msg ?? '処理中...'}</div>
+          </div>
+        )}
+        {errorMsg && (
+          <div className="rounded border border-rose-500 bg-rose-50 text-rose-800 px-3 py-2 text-sm">
+            {errorMsg}
           </div>
         )}
         {qualityHints.length > 0 && (

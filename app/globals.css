@@ -5,22 +5,24 @@
 /* Theme tokens */
 :root {
   color-scheme: light dark;
-  --background: #0a0a0a;
-  --foreground: #e5e7eb;
-  --card: #111827;
-  --border: #374151;
+  /* High-readable default (prefers dark) */
+  --background: #0d1117;   /* GitHub dark */
+  --foreground: #e6edf3;   /* High-contrast text */
+  --card: #161b22;         /* Slightly lighter than bg */
+  --border: #2d333b;       /* Subtle but visible */
 }
 .light {
-  --background: #ffffff;
-  --foreground: #111827;
-  --card: #f3f4f6;
-  --border: #e5e7eb;
+  /* Softer light theme with strong text contrast */
+  --background: #f8fafc;   /* slate-50 */
+  --foreground: #0f172a;   /* slate-900 */
+  --card: #ffffff;         /* pure white cards */
+  --border: #e2e8f0;       /* slate-200 */
 }
 .dark {
-  --background: #0a0a0a;
-  --foreground: #e5e7eb;
-  --card: #111827;
-  --border: #374151;
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --card: #161b22;
+  --border: #2d333b;
 }
 
 /* Utility classes to bridge Tailwind-style names */
@@ -30,3 +32,15 @@
 .border-default { border-color: var(--border) }
 
 html, body, #__next { height: 100% }
+
+/* Improve base readability */
+body {
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure borders and cards are readable on both themes */
+.border { border-color: var(--border) }
+.bg-card { color: var(--foreground) }

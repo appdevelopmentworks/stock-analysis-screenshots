@@ -41,8 +41,10 @@ export function SettingsSheet() {
       if (s.groqKey) encPayload.groq = await encryptString(s.groqKey, pin)
       if (s.openaiKey) encPayload.openai = await encryptString(s.openaiKey, pin)
       localStorage.setItem(ENC_KEY, JSON.stringify(encPayload))
+    } else if ((s.groqKey || s.openaiKey) && !pin) {
+      alert('APIキーを保存するにはPINを入力してください（暗号化保存）。PINなしの場合、下の「このセッションで使用」をご利用ください。')
     }
-    alert('設定を保存しました（端末内、キーはPINで暗号化）。')
+    alert('設定を保存しました（端末内）。')
   }
 
   function clearKey(kind: 'groq' | 'openai') {
@@ -142,6 +144,17 @@ export function SettingsSheet() {
               <button className="border rounded px-2" onClick={() => clearKey('openai')}>削除</button>
             </div>
           </label>
+          <div className="flex gap-2">
+            <button className="rounded border px-3 py-1" onClick={() => {
+              const rt: any = {}
+              if (s.groqKey) rt.groqKey = s.groqKey
+              if (s.openaiKey) rt.openaiKey = s.openaiKey
+              if (!rt.groqKey && !rt.openaiKey) { alert('APIキーが未入力です'); return }
+              sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(rt))
+              alert('このセッションでAPIキーを使用します（ブラウザを閉じると消えます）。')
+            }}>このセッションで使用</button>
+            {locked && <span className="text-xs text-amber-600">（推奨はPINで暗号化保存→「復号」）</span>}
+          </div>
         </div>
       </div>
       <div className="grid gap-2">
