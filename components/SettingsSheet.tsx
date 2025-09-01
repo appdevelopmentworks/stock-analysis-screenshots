@@ -74,6 +74,7 @@ export function SettingsSheet() {
       if (encObj.groq) result.groqKey = await decryptString(encObj.groq, pinNorm)
       if (encObj.openai) result.openaiKey = await decryptString(encObj.openai, pinNorm)
       sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(result))
+      localStorage.setItem(RUNTIME_KEYS_BACKUP, JSON.stringify(result))
       setLocked(false)
       alert('キーを復号して使用可能になりました（ページを閉じると消えます）。')
     } catch (e: any) {
