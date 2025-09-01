@@ -162,6 +162,18 @@ export async function POST(req: Request) {
         // adjust confidence slightly by orderbook consistency
         const score = consistencyScore(enriched)
         enriched.confidence = Math.max(0, Math.min(1, (enriched.confidence ?? 0.5) * 0.6 + score * 0.4))
+        // ensure scenarios exist (mobile fallback where model omitted scenarios)
+        if (!enriched.scenarios || typeof enriched.scenarios !== 'object') {
+          enriched.scenarios = {
+            base: {
+              conditions: '現状の前提に基づく基本シナリオ',
+              entry: enriched?.levels?.entry,
+              sl: enriched?.levels?.sl,
+              tp: Array.isArray(enriched?.levels?.tp) ? enriched.levels.tp.slice(0, 2) : undefined,
+              rationale: Array.isArray(enriched?.rationale) ? enriched.rationale.slice(0, 3) : undefined,
+            }
+          }
+        }
       } catch {}
       return new Response(JSON.stringify(enriched), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
     }
