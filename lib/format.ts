@@ -68,3 +68,28 @@ export function formatMarkdown(analysis: Analysis, opts: { meta?: any; level?: '
   ]
   return [...base, ...plan, ...risk, ...learnSections, ...learn, ...summary].join('\n')
 }
+
+export function formatScenarioMarkdown(analysis: any) {
+  const sc = analysis?.scenarios || {}
+  const title = '# シナリオ要約'
+  const lines: string[] = [title]
+  const one = (key: 'base'|'bull'|'bear', label: string) => {
+    if (!sc[key]) return
+    const s = sc[key]
+    const tp = Array.isArray(s.tp) ? s.tp.slice(0,3).join(', ') : '—'
+    lines.push(`## ${label}`)
+    if (s.conditions) lines.push(`- 条件: ${s.conditions}`)
+    lines.push(`- Entry: ${s.entry ?? '—'}`)
+    lines.push(`- SL(無効化): ${s.sl ?? '—'}`)
+    lines.push(`- TP候補: ${tp}`)
+    if (Array.isArray(s.rationale) && s.rationale.length) {
+      lines.push(`- 根拠:`)
+      for (const r of s.rationale.slice(0,3)) lines.push(`  - ${r}`)
+    }
+    if (s.rr != null) lines.push(`- 想定RR: ${s.rr}`)
+  }
+  one('base', 'ベース')
+  one('bull', '強気')
+  one('bear', '弱気')
+  return lines.join('\n')
+}

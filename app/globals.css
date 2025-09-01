@@ -2,11 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme tokens */
 :root {
   color-scheme: light dark;
+  --background: #0a0a0a;
+  --foreground: #e5e7eb;
+  --card: #111827;
+  --border: #374151;
+}
+.light {
+  --background: #ffffff;
+  --foreground: #111827;
+  --card: #f3f4f6;
+  --border: #e5e7eb;
+}
+.dark {
+  --background: #0a0a0a;
+  --foreground: #e5e7eb;
+  --card: #111827;
+  --border: #374151;
 }
 
-html, body, #__next {
-  height: 100%;
-}
+/* Utility classes to bridge Tailwind-style names */
+.bg-background { background-color: var(--background) }
+.text-foreground { color: var(--foreground) }
+.bg-card { background-color: var(--card) }
+.border-default { border-color: var(--border) }
 
+html, body, #__next { height: 100% }

@@ -2,7 +2,7 @@ export const runtime = 'edge'
 
 import { AnalysisSchema } from '@/lib/schema'
 import { visionExtractionPrompt, decisionPrompt, getPrompts, type PromptProfile } from '@/lib/prompts'
-import { normalizeOrderbook, sanitizeSR, validateDecision, checkPlanConsistency, enforceOrderbookTicks } from '@/lib/validation'
+import { normalizeOrderbook, sanitizeSR, validateDecision, checkPlanConsistency, enforceOrderbookTicks, analyzeOrderbookGaps, consistencyScore } from '@/lib/validation'
 
 type OrderbookLevel = { price: number; bid?: number; ask?: number }
 
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (!groqKey && !openaiKey) {
     const resp = stubResponse(files.length, meta)
     if (wantsStream) return streamStub(resp)
-    return Response.json(resp)
+    return new Response(JSON.stringify(resp), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
   }
 
   // Convert images to data URLs (base64) for OpenAI-compatible vision chat
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model: 'meta-llama/llama-4-maverick-17b-128e-instruct',
         messages: [
-          { role: 'system', content: pp.vision },
+          { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(meta.uiSource) : '') },
           {
             role: 'user',
             content: [
@@ -70,7 +70,8 @@ export async function POST(req: Request) {
     const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
     const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
     const enforced = enforceOrderbookTicks(ob, market)
-    extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted } }
+    const gaps = analyzeOrderbookGaps({ levels: enforced.levels }, market)
+    extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted, _irregularGaps: gaps.irregular } }
   } catch (e) {
     extractionJSON = null
     extractionErr = (e as any)?.message || 'extraction error'
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
         messages: [
-          { role: 'system', content: pp.decision },
+          { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(extractionJSON.extracted.uiSource) : '') },
           { role: 'user', content: JSON.stringify(decisionInput) },
         ],
         temperature: pp.temps.decision,
@@ -131,7 +132,7 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           messages: [
-            { role: 'system', content: pp.decision },
+            { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(extractionJSON.extracted.uiSource) : '') },
             { role: 'user', content: JSON.stringify(decisionInput) },
           ],
           temperature: pp.temps.decision,
@@ -150,7 +151,19 @@ export async function POST(req: Request) {
   if (finalJSON) {
     const parsed = AnalysisSchema.safeParse(finalJSON)
     if (parsed.success) {
-      return Response.json(parsed.data)
+      const enriched: any = { ...parsed.data }
+      // add notes about board irregularities
+      try {
+        const enforced = extractionJSON?.orderbook?._tickAdjusted
+        const irregular = extractionJSON?.orderbook?._irregularGaps
+        enriched.notes = enriched.notes || []
+        if (enforced > 0) enriched.notes.push(`板の価格を呼値刻みに補正: ${enforced}箇所`)
+        if (irregular) enriched.notes.push('板の価格間隔が不規則です（約定/表示の遅延や参照ズレの可能性）')
+        // adjust confidence slightly by orderbook consistency
+        const score = consistencyScore(enriched)
+        enriched.confidence = Math.max(0, Math.min(1, (enriched.confidence ?? 0.5) * 0.6 + score * 0.4))
+      } catch {}
+      return new Response(JSON.stringify(enriched), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
     }
   }
 
@@ -161,7 +174,7 @@ export async function POST(req: Request) {
   } else {
     fallback.notes.push('抽出に失敗（キー/モデル/レスポンス確認）')
   }
-  return Response.json(fallback)
+  return new Response(JSON.stringify(fallback), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
 }
 
 function safeJson(s: string) {

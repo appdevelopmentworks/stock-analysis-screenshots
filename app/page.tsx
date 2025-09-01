@@ -7,6 +7,8 @@ import { HistoryDrawer } from '@/components/HistoryDrawer'
 import { addHistory, fileToDataUrl } from '@/lib/history'
 import { ResultPane } from '@/components/ResultPane'
 import { analyzeImageQuality, preprocessIfNeeded } from '@/lib/image'
+import { detectUiSourceFromImage } from '@/lib/ui-detect'
+import { Button } from '@/components/ui/Button'
 
 export default function Page() {
   const [files, setFiles] = useState<File[]>([])
@@ -25,6 +27,11 @@ export default function Page() {
       // Preprocess images if enabled
       const settings = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('sta_settings_v1') || '{}') : {}
       const pre = await preprocessIfNeeded(files, { autoCompress: !!settings?.autoCompress, maxLongEdge: settings?.maxLongEdge ?? 1280, quality: settings?.jpegQuality ?? 0.85 })
+      // UI source auto-detect (first image) if Auto
+      let autoUi: any = null
+      if (!settings?.uiSource || settings.uiSource === 'Auto') {
+        try { autoUi = await detectUiSourceFromImage(pre[0]) } catch {}
+      }
       const hints: string[] = []
       for (const f of pre) {
         try {
@@ -41,7 +48,9 @@ export default function Page() {
       pre.forEach(f => fd.append('files', f))
       // Load client settings to pass keys and preferences
       const runtime = typeof window !== 'undefined' ? JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || '{}') : {}
-      const meta = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider: settings?.provider ?? 'groq', promptProfile: settings?.promptProfile ?? 'default' }
+      const meta: any = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider: settings?.provider ?? 'groq', promptProfile: settings?.promptProfile ?? 'default' }
+      if (settings?.uiSource && settings.uiSource !== 'Auto') meta.uiSource = settings.uiSource
+      if (!meta.uiSource && autoUi && autoUi !== 'Unknown') meta.uiSource = autoUi
       setLastMeta(meta)
       fd.append('meta', JSON.stringify(meta))
       const headers: Record<string, string> = { 'X-Stream': '1' }
@@ -169,13 +178,9 @@ export default function Page() {
           </div>
         </details>
         <HistoryDrawer onReevaluate={reeval} />
-        <button
-          onClick={onAnalyze}
-          disabled={!files.length || loading}
-          className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
-        >
+        <Button onClick={onAnalyze} disabled={!files.length || loading}>
           {loading ? '解析中…' : '解析する'}
-        </button>
+        </Button>
         {progress && (
           <div className="w-full">
             <div className="h-2 rounded bg-neutral-800 overflow-hidden">

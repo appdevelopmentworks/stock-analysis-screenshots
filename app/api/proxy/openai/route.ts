@@ -28,6 +28,21 @@ export async function POST(req: Request) {
 
   const hdr = new Headers(res.headers)
   hdr.set('x-proxy', 'openai')
+  hdr.set('cache-control', 'no-store')
+  hdr.set('access-control-allow-origin', '*')
+  hdr.set('access-control-allow-headers', 'content-type, authorization, x-api-key')
+  hdr.set('access-control-allow-methods', 'POST, OPTIONS')
   return new Response(res.body, { status: res.status, headers: hdr })
 }
 
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'access-control-allow-origin': '*',
+      'access-control-allow-headers': 'content-type, authorization, x-api-key',
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'cache-control': 'no-store',
+    },
+  })
+}

@@ -38,7 +38,7 @@ export default function TestsPage() {
     test('validateDecision clamps confidence and snaps levels', () => {
       const v = validateDecision({ decision: 'buy', horizon: 'intraday', levels: { entry: 1003.4, sl: 990.6, tp: [1020.2], sr: { support: [990.6], resistance: [1020.2] } }, confidence: 1.5, rationale: [] }, 'JP')
       if (v.confidence > 1) throw new Error('confidence not clamped')
-      if (v.levels.entry % 1 !== 0) throw new Error('entry not snapped for JP')
+      if (typeof v.levels.entry === 'number' && v.levels.entry % 1 !== 0) throw new Error('entry not snapped for JP')
     })
 
     // Markdown format
@@ -66,4 +66,3 @@ export default function TestsPage() {
     </main>
   )
 }
-

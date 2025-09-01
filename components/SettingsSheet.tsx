@@ -7,6 +7,7 @@ type Settings = {
   profile: 'fast' | 'balanced' | 'quality'
   tone: 'concise' | 'learning'
   promptProfile?: 'default' | 'strict' | 'verbose'
+  uiSource?: 'Auto' | 'SBI' | 'Rakuten' | 'Matsui' | 'TradingView'
   groqKey?: string
   openaiKey?: string
   autoCompress?: boolean
@@ -19,7 +20,7 @@ const ENC_KEY = 'sta_encrypted_keys_v1'
 const RUNTIME_KEYS = 'sta_runtime_keys_v1' // session-only
 
 export function SettingsSheet() {
-  const [s, setS] = useState<Settings>({ provider: 'groq', profile: 'balanced', tone: 'concise', promptProfile: 'default', autoCompress: true, maxLongEdge: 1280, jpegQuality: 0.85 as any })
+  const [s, setS] = useState<Settings>({ provider: 'groq', profile: 'balanced', tone: 'concise', promptProfile: 'default', uiSource: 'Auto', autoCompress: true, maxLongEdge: 1280, jpegQuality: 0.85 as any })
   const [showKey, setShowKey] = useState(false)
   const [pin, setPin] = useState('')
   const [locked, setLocked] = useState(true)
@@ -34,7 +35,7 @@ export function SettingsSheet() {
   }, [])
 
   async function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: s.provider, profile: s.profile, tone: s.tone, promptProfile: s.promptProfile, autoCompress: s.autoCompress, maxLongEdge: s.maxLongEdge, jpegQuality: s.jpegQuality, minLongEdge: (s as any).minLongEdge, minBlurScore: (s as any).minBlurScore, maxFileKB: (s as any).maxFileKB }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: s.provider, profile: s.profile, tone: s.tone, promptProfile: s.promptProfile, uiSource: s.uiSource, autoCompress: s.autoCompress, maxLongEdge: s.maxLongEdge, jpegQuality: s.jpegQuality, minLongEdge: (s as any).minLongEdge, minBlurScore: (s as any).minBlurScore, maxFileKB: (s as any).maxFileKB }))
     if (pin && (s.groqKey || s.openaiKey)) {
       const encPayload: any = {}
       if (s.groqKey) encPayload.groq = await encryptString(s.groqKey, pin)
@@ -76,6 +77,7 @@ export function SettingsSheet() {
   return (
     <div className="rounded border p-4 space-y-3">
       <h2 className="font-semibold">設定</h2>
+      <div />
       <div className="grid gap-2">
         <label className="flex items-center gap-2">プロバイダ
           <select value={s.provider} onChange={e => setS({ ...s, provider: e.target.value as any })} className="border rounded px-2 py-1">
@@ -83,6 +85,7 @@ export function SettingsSheet() {
             <option value="openai">OpenAI</option>
           </select>
         </label>
+        <div className="flex items-center"><span className="mr-2">表示:</span>{/* inline theme toggle */}{require('./ThemeToggle').ThemeToggle()}</div>
         <label className="flex items-center gap-2">プロファイル
           <select value={s.profile} onChange={e => setS({ ...s, profile: e.target.value as any })} className="border rounded px-2 py-1">
             <option value="fast">Fast</option>
@@ -101,6 +104,15 @@ export function SettingsSheet() {
             <option value="default">Default</option>
             <option value="strict">Strict（厳密JSON/保守寄り）</option>
             <option value="verbose">Verbose（理由を厚め）</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2">UIヒント
+          <select value={s.uiSource} onChange={e => setS({ ...s, uiSource: e.target.value as any })} className="border rounded px-2 py-1">
+            <option value="Auto">Auto</option>
+            <option value="SBI">SBI</option>
+            <option value="Rakuten">楽天</option>
+            <option value="Matsui">松井</option>
+            <option value="TradingView">TradingView</option>
           </select>
         </label>
         <div className="grid gap-2">

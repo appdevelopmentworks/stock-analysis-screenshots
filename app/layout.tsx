@@ -1,5 +1,6 @@
 import './globals.css'
 import type { Metadata } from 'next'
+import { InitSentry } from '@/components/InitSentry'
 
 export const metadata: Metadata = {
   title: 'Screenshot Trade Advisor',
@@ -10,11 +11,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
+    <html lang="ja" className="dark">
       <body className="min-h-dvh bg-background text-foreground">
+        <InitSentry />
         {children}
       </body>
     </html>
   )
 }
-

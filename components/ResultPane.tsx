@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatMarkdown } from '@/lib/format'
+import { formatMarkdown, formatScenarioMarkdown } from '@/lib/format'
 
 type Props = { data: any; meta?: any }
 export function ResultPane({ data, meta }: Props) {
@@ -28,6 +28,11 @@ export function ResultPane({ data, meta }: Props) {
         <div className="flex items-center gap-2">
           <button className="text-xs border rounded px-2 py-1" onClick={() => copy(JSON.stringify(data, null, 2), 'json')}>{copied==='json' ? 'JSONコピー済' : 'JSONコピー'}</button>
           <button className="text-xs border rounded px-2 py-1" onClick={() => copy(md, 'md')}>{copied==='md' ? 'MDコピー済' : 'MDコピー'}</button>
+          { (scenarios.base || scenarios.bull || scenarios.bear) && (
+            <button className="text-xs border rounded px-2 py-1" onClick={() => copy(formatScenarioMarkdown(data), 'md')}>
+              {copied==='md' ? 'シナリオMDコピー済' : 'シナリオMDコピー'}
+            </button>
+          )}
           <span className="text-xs">信頼度: {(confidence * 100).toFixed(0)}%</span>
         </div>
       </div>

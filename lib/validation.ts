@@ -21,23 +21,23 @@ export function sanitizeSR(sr: any, market: Market) {
 }
 
 export function normalizeOrderbook(ob: any, market: Market) {
-  const levels = Array.isArray(ob?.levels) ? ob.levels : []
-  const cleaned = levels
-    .map((lv: any) => ({ price: Number(lv.price), bid: Number(lv.bid ?? 0), ask: Number(lv.ask ?? 0) }))
-    .filter((lv: any) => isFiniteNumber(lv.price) && lv.price > 0)
-    .map((lv: any) => ({ ...lv, price: snapToTick(roundByMarket(lv.price, market), market) }))
+  const levels = (Array.isArray(ob?.levels) ? ob.levels : []) as Array<{ price: any; bid?: any; ask?: any }>
+  const cleaned: Array<{ price: number; bid: number; ask: number }> = levels
+    .map((lv) => ({ price: Number(lv.price), bid: Number(lv.bid ?? 0), ask: Number(lv.ask ?? 0) }))
+    .filter((lv) => isFiniteNumber(lv.price) && lv.price > 0)
+    .map((lv) => ({ ...lv, price: snapToTick(roundByMarket(lv.price, market), market) }))
 
   // compute spread/pressure if missing
-  const bids = cleaned.filter(l => l.bid > 0)
-  const asks = cleaned.filter(l => l.ask > 0)
-  const bestBid = bids.length ? Math.max(...bids.map(l => l.price)) : undefined
-  const bestAsk = asks.length ? Math.min(...asks.map(l => l.price)) : undefined
+  const bids = cleaned.filter((l) => l.bid > 0)
+  const asks = cleaned.filter((l) => l.ask > 0)
+  const bestBid = bids.length ? Math.max(...bids.map((l) => l.price)) : undefined
+  const bestAsk = asks.length ? Math.min(...asks.map((l) => l.price)) : undefined
   let spread: number | null = null
   if (isFiniteNumber(bestBid) && isFiniteNumber(bestAsk)) {
     spread = Math.max(0, roundByMarket(bestAsk! - bestBid!, market))
   }
-  const bidSum = bids.reduce((a, b) => a + (isFiniteNumber(b.bid) ? b.bid : 0), 0)
-  const askSum = asks.reduce((a, b) => a + (isFiniteNumber(b.ask) ? b.ask : 0), 0)
+  const bidSum = bids.reduce((a: number, b) => a + (isFiniteNumber(b.bid) ? b.bid : 0), 0)
+  const askSum = asks.reduce((a: number, b) => a + (isFiniteNumber(b.ask) ? b.ask : 0), 0)
   const imbalance = bidSum + askSum > 0 ? (bidSum - askSum) / (bidSum + askSum) : 0
   const pressure: 'bid' | 'ask' | 'neutral' = imbalance > 0.1 ? 'bid' : imbalance < -0.1 ? 'ask' : 'neutral'
   return { levels: cleaned, spread, imbalance, pressure }
@@ -122,6 +122,30 @@ export function checkPlanConsistency(out: any, market: Market) {
   return out
 }
 
+export function consistencyScore(out: any) {
+  try {
+    const ob = out?.orderbook || {}
+    const imb = typeof ob.imbalance === 'number' ? ob.imbalance : 0
+    const pressure = ob.pressure || 'neutral'
+    const dec = out?.decision || 'hold'
+    let score = 0.5
+    if (dec === 'buy') {
+      if (imb > 0.05) score += 0.2
+      if (pressure === 'bid') score += 0.15
+      if (imb < -0.05) score -= 0.2
+    } else if (dec === 'sell') {
+      if (imb < -0.05) score += 0.2
+      if (pressure === 'ask') score += 0.15
+      if (imb > 0.05) score -= 0.2
+    } else {
+      score = 0.5
+    }
+    return Math.max(0, Math.min(1, score))
+  } catch {
+    return 0.5
+  }
+}
+
 // --- Tick size helpers (approximate rules) ---
 export function tickSizeForMarket(market: Market, price: number) {
   if (market === 'US' || market === 'CRYPTO') return 0.01
@@ -152,4 +176,16 @@ export function enforceOrderbookTicks(ob: any, market: Market) {
     return { ...lv, price: snapped }
   })
   return { levels: out, adjusted }
+}
+
+export function analyzeOrderbookGaps(ob: any, market: Market) {
+  const prices: number[] = Array.from(new Set((Array.isArray(ob?.levels) ? ob.levels : []).map((l: any) => Number(l.price)).filter(isFiniteNumber))) as number[]
+  prices.sort((a: number, b: number) => a - b)
+  if (prices.length < 3) return { irregular: false, gaps: [] as number[] }
+  const gaps: number[] = []
+  for (let i = 1; i < prices.length; i++) gaps.push(Math.round(((prices[i] as number) - (prices[i - 1] as number)) * 1e6) / 1e6)
+  const uniq = Array.from(new Set(gaps.map(g => Math.abs(g))))
+  // If more than 2 distinct gaps, consider irregular
+  const irregular = uniq.length > 2
+  return { irregular, gaps: uniq }
 }

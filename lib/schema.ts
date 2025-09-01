@@ -22,6 +22,7 @@ export const ExtractedSchema = z.object({
   ticker: z.string().nullable().optional(),
   market: z.enum(['JP', 'US', 'CRYPTO']).default('JP'),
   timeframe: z.string().nullable().optional(),
+  uiSource: z.enum(['SBI', 'Rakuten', 'Matsui', 'TradingView', 'Unknown']).optional(),
 })
 
 export const AnalysisSchema = z.object({

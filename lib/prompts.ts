@@ -11,7 +11,8 @@ Platform normalization hints:
 - Matsui: light theme defaults; board separated by subtle gray lines; price column explicitly labeled 価格; spread can be inferred by closest ask - bid.
 - TradingView: chart watermark with ticker; indicator legends (EMA, RSI, MACD) near top-left; OHLC near top bar.
 
-Return ONLY strict JSON with keys: { "extracted": {ticker, market, timeframe}, "levels": {"sr": {support:number[], resistance:number[]}}, "orderbook": {spread:number|null, imbalance:number|null, pressure:"bid"|"ask"|"neutral", levels:{price:number,bid?:number,ask?:number}[] } }.
+Return ONLY strict JSON with keys: { "extracted": {ticker, market, timeframe, uiSource}, "levels": {"sr": {support:number[], resistance:number[]}}, "orderbook": {spread:number|null, imbalance:number|null, pressure:"bid"|"ask"|"neutral", levels:{price:number,bid?:number,ask?:number}[] } }.
+Set extracted.uiSource to one of: "SBI" | "Rakuten" | "Matsui" | "TradingView" | "Unknown".
 Use null for unknown numeric fields. No extra text.
 `
 
@@ -41,4 +42,19 @@ export function getPrompts(profile: PromptProfile = 'default') {
     }
   }
   return { vision: visionExtractionPrompt, decision: decisionPrompt, temps: { vision: 0.2, decision: 0.3 } }
+}
+
+export function getUiHints(ui?: string) {
+  switch (ui) {
+    case 'SBI':
+      return 'UI: SBI 証券のレイアウト。板は中央が価格、左が買気配、右が売気配。見出しは日本語。'
+    case 'Rakuten':
+      return 'UI: 楽天証券。フォントが密、合計(合計)行あり。ベスト気配のボーダーが太い場合あり。'
+    case 'Matsui':
+      return 'UI: 松井証券。ライトテーマが多く、価格列は「価格」と明示、灰色の区切り線。'
+    case 'TradingView':
+      return 'UI: TradingView。ウォーターマークにティッカー、インジの凡例(EMA/RSI/MACD)が左上付近に表示。'
+    default:
+      return ''
+  }
 }
