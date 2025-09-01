@@ -35,52 +35,128 @@ export async function POST(req: Request) {
   const promptProfile: PromptProfile = (meta?.promptProfile ?? 'default') as any
   const pp = getPrompts(promptProfile)
 
-  // 1) Vision extraction via Groq (preferred)
+  // 1) Vision extraction (Groq preferred unless Groq key is absent)
   let extractionJSON: any | null = null
   let extractionErr: string | null = null
-  try {
-    const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': groqKey,
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-4-maverick-17b-128e-instruct',
-        messages: [
-          { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(meta.uiSource) : '') },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
-              ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
-            ],
-          },
-        ],
-        temperature: pp.temps.vision,
-        response_format: { type: 'json_object' },
-      }),
-    })
-    if (!res.ok) extractionErr = `groq vision ${res.status}`
-    const data = await res.json().catch(() => ({}))
-    const content = data?.choices?.[0]?.message?.content ?? '{}'
-    extractionJSON = safeJson(content)
-    // sanitize numeric SR and orderbook
-    const market = (meta?.market ?? 'JP') as any
-    const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
-    const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
-    const enforced = enforceOrderbookTicks(ob, market)
-    const gaps = analyzeOrderbookGaps({ levels: enforced.levels }, market)
-    extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted, _irregularGaps: gaps.irregular } }
-  } catch (e) {
-    extractionJSON = null
-    extractionErr = (e as any)?.message || 'extraction error'
+  if (groqKey) {
+    try {
+      const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': groqKey,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.2-11b-vision',
+          messages: [
+            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(meta.uiSource) : '') },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
+                ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+              ],
+            },
+          ],
+          temperature: pp.temps.vision,
+          response_format: { type: 'json_object' },
+        }),
+      })
+      if (!res.ok) extractionErr = `groq vision ${res.status}`
+      const data = await res.json().catch(() => ({}))
+      const content = data?.choices?.[0]?.message?.content ?? '{}'
+      extractionJSON = safeJson(content)
+      const market = (meta?.market ?? 'JP') as any
+      const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
+      const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
+      const enforced = enforceOrderbookTicks(ob, market)
+      const gaps = analyzeOrderbookGaps({ levels: enforced.levels }, market)
+      extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted, _irregularGaps: gaps.irregular } }
+    } catch (e) {
+      extractionJSON = null
+      extractionErr = (e as any)?.message || 'extraction error'
+    }
+  } else if (openaiKey) {
+    // OpenAI-only path
+    try {
+      const res = await fetch(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': openaiKey,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(meta.uiSource) : '') },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
+                ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+              ],
+            },
+          ],
+          temperature: pp.temps.vision,
+          response_format: { type: 'json_object' },
+        }),
+      })
+      if (!res.ok) extractionErr = `openai vision ${res.status}`
+      const data = await res.json().catch(() => ({}))
+      const content = data?.choices?.[0]?.message?.content ?? '{}'
+      extractionJSON = safeJson(content)
+      const market = (meta?.market ?? 'JP') as any
+      const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
+      const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
+      const enforced = enforceOrderbookTicks(ob, market)
+      const gaps = analyzeOrderbookGaps({ levels: enforced.levels }, market)
+      extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted, _irregularGaps: gaps.irregular } }
+    } catch (e) {
+      extractionJSON = null
+      extractionErr = (e as any)?.message || 'extraction error'
+    }
   }
 
   if (wantsStream) {
     return streamPhases(async (send, progress) => {
       progress(10, 'extraction:start')
       if (extractionErr) send('log', { stage: 'extraction', error: extractionErr })
+      // If extraction is empty and OpenAI key is available, try OpenAI vision fallback
+      if ((!extractionJSON || Object.keys(extractionJSON || {}).length === 0) && openaiKey) {
+        try {
+          const res = await fetch(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': openaiKey,
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: pp.vision },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
+                    ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+                  ],
+                },
+              ],
+              temperature: pp.temps.vision,
+              response_format: { type: 'json_object' },
+            }),
+          })
+          const data = await res.json().catch(() => ({}))
+          const content = data?.choices?.[0]?.message?.content ?? '{}'
+          extractionJSON = safeJson(content)
+          const market = (meta?.market ?? 'JP') as any
+          const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
+          const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
+          const enforced = enforceOrderbookTicks(ob, market)
+          const gaps = analyzeOrderbookGaps({ levels: enforced.levels }, market)
+          extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted, _irregularGaps: gaps.irregular } }
+        } catch {}
+      }
       send('extraction', { extracted: extractionJSON?.extracted ?? {}, levels: extractionJSON?.levels ?? {}, orderbook: extractionJSON?.orderbook ?? {} })
       progress(55, extractionErr ? 'extraction:error' : 'extraction:done')
       const { data: final, error: decErr } = await computeDecision(meta, groqKey, openaiKey, extractionJSON, req)
@@ -99,8 +175,9 @@ export async function POST(req: Request) {
     sr: extractionJSON?.levels?.sr ?? { support: [], resistance: [] },
     orderbook: extractionJSON?.orderbook ?? {},
   }
-  try {
-    const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
+  if (groqKey) {
+    try {
+      const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -116,14 +193,15 @@ export async function POST(req: Request) {
         response_format: { type: 'json_object' },
       }),
     })
-    const data = await res.json().catch(() => ({}))
-    const content = data?.choices?.[0]?.message?.content ?? '{}'
-    finalJSON = safeJson(content)
-  } catch (e) {
-    finalJSON = null
+      const data = await res.json().catch(() => ({}))
+      const content = data?.choices?.[0]?.message?.content ?? '{}'
+      finalJSON = safeJson(content)
+    } catch (e) {
+      finalJSON = null
+    }
   }
 
-  if (!finalJSON && openaiKey) {
+  if ((!groqKey || !finalJSON) && openaiKey) {
     // Fallback to OpenAI (gpt-4o-mini)
     try {
       const res = await fetch(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
