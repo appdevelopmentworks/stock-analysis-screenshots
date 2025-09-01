@@ -49,7 +49,10 @@ export default function Page() {
       setQualityHints(hints)
       pre.forEach(f => fd.append('files', f))
       // Load client settings to pass keys and preferences
-      const runtime = typeof window !== 'undefined' ? JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || '{}') : {}
+      const runtime = typeof window !== 'undefined'
+        ? (JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || 'null')
+          || JSON.parse(localStorage.getItem('sta_runtime_keys_backup_v1') || 'null') || {})
+        : {}
       if (!runtime?.groqKey && !runtime?.openaiKey) {
         setLoading(false)
         setProgress(null)
@@ -131,7 +134,10 @@ export default function Page() {
       setLastMeta(meta)
       fd.append('meta', JSON.stringify(meta))
       const settings = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('sta_settings_v1') || '{}') : {}
-      const runtime = typeof window !== 'undefined' ? JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || '{}') : {}
+      const runtime = typeof window !== 'undefined'
+        ? (JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || 'null')
+          || JSON.parse(localStorage.getItem('sta_runtime_keys_backup_v1') || 'null') || {})
+        : {}
       const headers: Record<string, string> = { 'X-Stream': '1' }
       if (runtime?.groqKey) headers['X-API-Key'] = runtime.groqKey
       if (runtime?.openaiKey) headers['X-OpenAI-Key'] = runtime.openaiKey

@@ -18,12 +18,15 @@ type Settings = {
 const STORAGE_KEY = 'sta_settings_v1'
 const ENC_KEY = 'sta_encrypted_keys_v1'
 const RUNTIME_KEYS = 'sta_runtime_keys_v1' // session-only
+const RUNTIME_KEYS_BACKUP = 'sta_runtime_keys_backup_v1' // localStorage backup for iOS PWA
 
 export function SettingsSheet() {
   const [s, setS] = useState<Settings>({ provider: 'groq', profile: 'balanced', tone: 'concise', promptProfile: 'default', uiSource: 'Auto', autoCompress: true, maxLongEdge: 1280, jpegQuality: 0.85 as any })
   const [showKey, setShowKey] = useState(false)
   const [pin, setPin] = useState('')
   const [locked, setLocked] = useState(true)
+  const [hasEncrypted, setHasEncrypted] = useState<boolean>(false)
+  const [hasRuntime, setHasRuntime] = useState<boolean>(false)
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -31,17 +34,22 @@ export function SettingsSheet() {
     // Check if runtime keys exist in session
     const rk = sessionStorage.getItem(RUNTIME_KEYS)
     setLocked(!rk)
+    setHasRuntime(!!rk || !!localStorage.getItem(RUNTIME_KEYS_BACKUP))
+    setHasEncrypted(!!localStorage.getItem(ENC_KEY))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function save() {
+    const pinNorm = (pin || '').trim()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: s.provider, profile: s.profile, tone: s.tone, promptProfile: s.promptProfile, uiSource: s.uiSource, autoCompress: s.autoCompress, maxLongEdge: s.maxLongEdge, jpegQuality: s.jpegQuality, minLongEdge: (s as any).minLongEdge, minBlurScore: (s as any).minBlurScore, maxFileKB: (s as any).maxFileKB }))
-    if (pin && (s.groqKey || s.openaiKey)) {
+    if (pinNorm && (s.groqKey || s.openaiKey)) {
       const encPayload: any = {}
-      if (s.groqKey) encPayload.groq = await encryptString(s.groqKey, pin)
-      if (s.openaiKey) encPayload.openai = await encryptString(s.openaiKey, pin)
+      if (s.groqKey) encPayload.groq = await encryptString(s.groqKey, pinNorm)
+      if (s.openaiKey) encPayload.openai = await encryptString(s.openaiKey, pinNorm)
       localStorage.setItem(ENC_KEY, JSON.stringify(encPayload))
-    } else if ((s.groqKey || s.openaiKey) && !pin) {
+      alert('設定と暗号化済みキーを保存しました。復号して使用できます。')
+      return
+    } else if ((s.groqKey || s.openaiKey) && !pinNorm) {
       alert('APIキーを保存するにはPINを入力してください（暗号化保存）。PINなしの場合、下の「このセッションで使用」をご利用ください。')
     }
     alert('設定を保存しました（端末内）。')
@@ -58,22 +66,36 @@ export function SettingsSheet() {
   async function unlock() {
     try {
       const encRaw = localStorage.getItem(ENC_KEY)
-      if (!encRaw) throw new Error('暗号化されたキーが見つかりません')
+      if (!encRaw) throw new Error('暗号化されたキーが見つかりません。まずPINを設定して保存してください。')
       const encObj = JSON.parse(encRaw)
       const result: any = {}
-      if (encObj.groq) result.groqKey = await decryptString(encObj.groq, pin)
-      if (encObj.openai) result.openaiKey = await decryptString(encObj.openai, pin)
+      const pinNorm = (pin || '').trim()
+      if (!pinNorm) throw new Error('PINが入力されていません')
+      if (encObj.groq) result.groqKey = await decryptString(encObj.groq, pinNorm)
+      if (encObj.openai) result.openaiKey = await decryptString(encObj.openai, pinNorm)
       sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(result))
       setLocked(false)
       alert('キーを復号して使用可能になりました（ページを閉じると消えます）。')
     } catch (e: any) {
-      alert('復号に失敗しました。PINが正しいか確認してください。')
+      alert(e?.message || '復号に失敗しました。PINが正しいか確認してください。')
     }
   }
 
   function lock() {
     sessionStorage.removeItem(RUNTIME_KEYS)
+    localStorage.removeItem(RUNTIME_KEYS_BACKUP)
     setLocked(true)
+    setHasRuntime(false)
+  }
+
+  function resetAll() {
+    sessionStorage.removeItem(RUNTIME_KEYS)
+    localStorage.removeItem(RUNTIME_KEYS_BACKUP)
+    localStorage.removeItem(ENC_KEY)
+    alert('キー情報をリセットしました（暗号化キー・セッションキー）')
+    setLocked(true)
+    setHasEncrypted(false)
+    setHasRuntime(false)
   }
 
   return (
@@ -151,7 +173,10 @@ export function SettingsSheet() {
               if (s.openaiKey) rt.openaiKey = s.openaiKey
               if (!rt.groqKey && !rt.openaiKey) { alert('APIキーが未入力です'); return }
               sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(rt))
+              localStorage.setItem(RUNTIME_KEYS_BACKUP, JSON.stringify(rt))
               alert('このセッションでAPIキーを使用します（ブラウザを閉じると消えます）。')
+              setLocked(false)
+              setHasRuntime(true)
             }}>このセッションで使用</button>
             {locked && <span className="text-xs text-amber-600">（推奨はPINで暗号化保存→「復号」）</span>}
           </div>
@@ -189,12 +214,16 @@ export function SettingsSheet() {
           <button className="rounded bg-green-600 text-white px-3 py-1" onClick={unlock} disabled={!pin}>復号（使用可能に）</button>
           <button className="rounded border px-3 py-1" onClick={lock}>ロック</button>
         </div>
-        <p className="text-xs text-neutral-500">復号したキーはセッション中のみ保持（ページを閉じると消去）。</p>
+        <p className="text-xs text-neutral-500">復号したキーはセッション中のみ保持（ページを閉じると消去）。暗号化済みキーが無い場合はエラーになります。</p>
       </div>
       <div className="flex gap-2">
         <button className="rounded bg-blue-600 text-white px-3 py-1" onClick={save}>保存</button>
+        <button className="rounded border px-3 py-1" onClick={resetAll}>リセット</button>
       </div>
       <p className="text-xs text-neutral-500">キーは端末のlocalStorageに暗号化保存され、サーバには保存されません。</p>
+      <div className="text-xs text-neutral-500">
+        状態: 暗号化キー {hasEncrypted ? 'あり' : 'なし'} / セッションキー {hasRuntime ? 'あり' : 'なし'}
+      </div>
       {locked && <p className="text-xs text-amber-500">現在はロック状態（未復号）です。PINで復号すると解析に使用されます。</p>}
     </div>
   )
