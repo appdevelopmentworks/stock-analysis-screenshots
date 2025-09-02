@@ -13,6 +13,10 @@ export function ResultPane({ data, meta }: Props) {
   const { decision, horizon, rationale, confidence } = data
   const md = formatMarkdown(data, { meta, level: tone })
   const scenarios = data.scenarios || {}
+  const providers = data.providers || {}
+  const provText = providers.vision || providers.decision || data.provider
+    ? `Vision: ${providers.vision ?? '—'} / Decision: ${providers.decision ?? (data.provider ?? '—')}`
+    : null
 
   async function copy(text: string, kind: 'json'|'md') {
     try {
@@ -23,9 +27,15 @@ export function ResultPane({ data, meta }: Props) {
   }
   return (
     <div className="rounded border p-4 space-y-3">
+      {Array.isArray(data?.notes) && data.notes.some((n: string) => n.includes('スタブ返却')) && (
+        <div className="mb-2 rounded border border-amber-400 bg-amber-50 text-amber-800 px-3 py-2 text-xs">
+          これはスタブ（ダミー）応答です。キー未設定/抽出失敗時に表示されます。
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">結果</h2>
         <div className="flex items-center gap-2">
+          {provText && (<span className="text-xs text-neutral-500">{provText}</span>)}
           <button className="text-xs border rounded px-2 py-1" onClick={() => copy(JSON.stringify(data, null, 2), 'json')}>{copied==='json' ? 'JSONコピー済' : 'JSONコピー'}</button>
           <button className="text-xs border rounded px-2 py-1" onClick={() => copy(md, 'md')}>{copied==='md' ? 'MDコピー済' : 'MDコピー'}</button>
           { (scenarios.base || scenarios.bull || scenarios.bear) && (

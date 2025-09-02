@@ -1,7 +1,7 @@
 export const runtime = 'edge'
 
 import { AnalysisSchema } from '@/lib/schema'
-import { visionExtractionPrompt, decisionPrompt, getPrompts, type PromptProfile } from '@/lib/prompts'
+import { visionExtractionPrompt, decisionPrompt, getPrompts, getUiHints, type PromptProfile } from '@/lib/prompts'
 import { normalizeOrderbook, sanitizeSR, validateDecision, checkPlanConsistency, enforceOrderbookTicks, analyzeOrderbookGaps, consistencyScore } from '@/lib/validation'
 
 type OrderbookLevel = { price: number; bid?: number; ask?: number }
@@ -34,11 +34,16 @@ export async function POST(req: Request) {
 
   const promptProfile: PromptProfile = (meta?.promptProfile ?? 'default') as any
   const pp = getPrompts(promptProfile)
+  const openaiModel = (meta?.openaiModel || 'gpt-4o-mini') as string
+  try { console.log('[analyze] meta.provider', meta?.provider, 'openaiModel', openaiModel) } catch {}
 
-  // 1) Vision extraction (Groq preferred unless Groq key is absent)
+  // 1) Vision extraction（ユーザ設定のproviderを優先）
   let extractionJSON: any | null = null
   let extractionErr: string | null = null
-  if (groqKey) {
+  let visionProvider: 'groq' | 'openai' | 'none' = 'none'
+  const preferOpenAI = meta?.provider === 'openai'
+  try { console.log('[analyze] preferOpenAI', preferOpenAI) } catch {}
+  if (groqKey && !preferOpenAI) {
     try {
       const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
         method: 'POST',
@@ -47,9 +52,9 @@ export async function POST(req: Request) {
           'x-api-key': groqKey,
         },
         body: JSON.stringify({
-          model: 'llama-3.2-11b-vision',
+          model: 'llama-3.2-11b-vision-preview',
           messages: [
-            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(meta.uiSource) : '') },
+            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + getUiHints(meta.uiSource) : '') },
             {
               role: 'user',
               content: [
@@ -62,10 +67,13 @@ export async function POST(req: Request) {
           response_format: { type: 'json_object' },
         }),
       })
+      try { console.log('[analyze] vision(groq) status', res.status, 'ok', res.ok) } catch {}
       if (!res.ok) extractionErr = `groq vision ${res.status}`
       const data = await res.json().catch(() => ({}))
       const content = data?.choices?.[0]?.message?.content ?? '{}'
+      try { console.log('[analyze] vision(groq) contentLen', (content || '{}').length) } catch {}
       extractionJSON = safeJson(content)
+      visionProvider = 'groq'
       const market = (meta?.market ?? 'JP') as any
       const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
       const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
@@ -86,9 +94,9 @@ export async function POST(req: Request) {
           'x-api-key': openaiKey,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: openaiModel,
           messages: [
-            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(meta.uiSource) : '') },
+            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + getUiHints(meta.uiSource) : '') },
             {
               role: 'user',
               content: [
@@ -101,10 +109,13 @@ export async function POST(req: Request) {
           response_format: { type: 'json_object' },
         }),
       })
+      try { console.log('[analyze] vision(openai) status', res.status, 'ok', res.ok) } catch {}
       if (!res.ok) extractionErr = `openai vision ${res.status}`
       const data = await res.json().catch(() => ({}))
       const content = data?.choices?.[0]?.message?.content ?? '{}'
+      try { console.log('[analyze] vision(openai) contentLen', (content || '{}').length) } catch {}
       extractionJSON = safeJson(content)
+      visionProvider = 'openai'
       const market = (meta?.market ?? 'JP') as any
       const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
       const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
@@ -131,7 +142,7 @@ export async function POST(req: Request) {
               'x-api-key': openaiKey,
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: openaiModel,
               messages: [
                 { role: 'system', content: pp.vision },
                 {
@@ -146,9 +157,12 @@ export async function POST(req: Request) {
               response_format: { type: 'json_object' },
             }),
           })
+          send('log', { stage: 'vision', provider: 'openai:fallback', status: res.status, ok: res.ok })
           const data = await res.json().catch(() => ({}))
           const content = data?.choices?.[0]?.message?.content ?? '{}'
+          try { send('log', { stage: 'vision', provider: 'openai:fallback', contentLen: (content || '{}').length }) } catch {}
           extractionJSON = safeJson(content)
+          visionProvider = 'openai'
           const market = (meta?.market ?? 'JP') as any
           const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
           const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
@@ -159,23 +173,25 @@ export async function POST(req: Request) {
       }
       send('extraction', { extracted: extractionJSON?.extracted ?? {}, levels: extractionJSON?.levels ?? {}, orderbook: extractionJSON?.orderbook ?? {} })
       progress(55, extractionErr ? 'extraction:error' : 'extraction:done')
-      const { data: final, error: decErr } = await computeDecision(meta, groqKey, openaiKey, extractionJSON, req)
+      const { data: final, error: decErr, provider: decisionProvider } = await computeDecision(meta, groqKey, openaiKey, extractionJSON, req)
       if (decErr) send('log', { stage: 'decision', error: decErr })
       progress(85, decErr ? 'decision:error' : 'decision:ready')
-      send('decision', final)
+      const enriched = final ? { ...final, provider: decisionProvider, providers: { vision: visionProvider, decision: decisionProvider } } : final
+      send('decision', enriched)
       progress(100, 'done')
     })
   }
 
   // 2) Decision summarization (Groq text), fallback to OpenAI if provided
   let finalJSON: any | null = null
+  let failReason: string | null = null
   const decisionInput = {
     meta,
     extracted: extractionJSON?.extracted ?? {},
     sr: extractionJSON?.levels?.sr ?? { support: [], resistance: [] },
     orderbook: extractionJSON?.orderbook ?? {},
   }
-  if (groqKey) {
+  if (groqKey && meta?.provider !== 'openai') {
     try {
       const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
       method: 'POST',
@@ -184,7 +200,7 @@ export async function POST(req: Request) {
         'x-api-key': groqKey,
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-120b',
+        model: 'llama-3.1-70b-versatile',
         messages: [
           { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(extractionJSON.extracted.uiSource) : '') },
           { role: 'user', content: JSON.stringify(decisionInput) },
@@ -193,33 +209,47 @@ export async function POST(req: Request) {
         response_format: { type: 'json_object' },
       }),
     })
-      const data = await res.json().catch(() => ({}))
-      const content = data?.choices?.[0]?.message?.content ?? '{}'
-      finalJSON = safeJson(content)
+      try { console.log('[analyze] decision(groq) status', res.status, 'ok', res.ok) } catch {}
+      if (!res.ok) {
+        finalJSON = null
+      } else {
+        const data = await res.json().catch(() => ({}))
+        const content = data?.choices?.[0]?.message?.content ?? '{}'
+        try { console.log('[analyze] decision(groq) contentLen', (content || '{}').length) } catch {}
+        const raw = safeJson(content)
+        finalJSON = isMeaningful(raw) ? raw : null
+      }
     } catch (e) {
       finalJSON = null
     }
   }
 
-  if ((!groqKey || !finalJSON) && openaiKey) {
+  if (((preferOpenAI && openaiKey) || (!finalJSON && openaiKey))) {
     // Fallback to OpenAI (gpt-4o-mini)
     try {
       const res = await fetch(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': openaiKey },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: openaiModel,
           messages: [
-            { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + require('@/lib/prompts').getUiHints(extractionJSON.extracted.uiSource) : '') },
+            { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + getUiHints(extractionJSON.extracted.uiSource) : '') },
             { role: 'user', content: JSON.stringify(decisionInput) },
           ],
           temperature: pp.temps.decision,
           response_format: { type: 'json_object' },
         }),
       })
-      const data = await res.json().catch(() => ({}))
-      const content = data?.choices?.[0]?.message?.content ?? '{}'
-      finalJSON = safeJson(content)
+      try { console.log('[analyze] decision(openai) status', res.status, 'ok', res.ok) } catch {}
+      if (!res.ok) {
+        finalJSON = null
+      } else {
+        const data = await res.json().catch(() => ({}))
+        const content = data?.choices?.[0]?.message?.content ?? '{}'
+        try { console.log('[analyze] decision(openai) contentLen', (content || '{}').length) } catch {}
+        const raw = safeJson(content)
+        finalJSON = isMeaningful(raw) ? raw : null
+      }
     } catch (e) {
       finalJSON = null
     }
@@ -230,6 +260,10 @@ export async function POST(req: Request) {
     const parsed = AnalysisSchema.safeParse(finalJSON)
     if (parsed.success) {
       const enriched: any = { ...parsed.data }
+      // annotate providers used（実際に使ったproviderを推定）
+      const decisionProvider = (!groqKey && openaiKey) ? 'openai' : (groqKey && !openaiKey) ? 'groq' : (preferOpenAI ? 'openai' : (visionProvider === 'openai' ? 'openai' : 'groq'))
+      enriched.provider = decisionProvider as any
+      enriched.providers = { vision: visionProvider, decision: decisionProvider as any }
       // add notes about board irregularities
       try {
         const enforced = extractionJSON?.orderbook?._tickAdjusted
@@ -255,12 +289,15 @@ export async function POST(req: Request) {
       } catch {}
       return new Response(JSON.stringify(enriched), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
     }
+    try { console.log('[analyze] decision parse failed:', JSON.stringify(parsed, null, 2).slice(0, 800)) } catch {}
+    failReason = 'decision-parse'
   }
 
   // If model outputs unusable or failed, return graceful stub with hints
-  const fallback = stubResponse(files.length, meta)
+  const fallback = stubResponse(files.length, meta, { vision: visionProvider, decision: 'none' })
   if (extractionJSON) {
-    fallback.notes.push('抽出JSONの解析に失敗したためスタブ返却')
+    if (failReason === 'decision-parse') fallback.notes.push('要約JSONの検証に失敗したためスタブ返却')
+    else fallback.notes.push('抽出JSONの解析に失敗したためスタブ返却')
   } else {
     fallback.notes.push('抽出に失敗（キー/モデル/レスポンス確認）')
   }
@@ -271,7 +308,20 @@ function safeJson(s: string) {
   try { return JSON.parse(s) } catch { return {} }
 }
 
-function stubResponse(imageCount: number, meta: any) {
+function isMeaningful(obj: any) {
+  if (!obj || typeof obj !== 'object') return false
+  // Treat as meaningful only if model returned some fields beyond defaults
+  if (typeof obj.decision === 'string' && ['buy', 'sell'].includes(obj.decision)) return true
+  if (obj?.levels && (typeof obj.levels.entry === 'number' || typeof obj.levels.sl === 'number' || (Array.isArray(obj.levels.tp) && obj.levels.tp.length > 0))) return true
+  if (obj?.scenarios && Object.keys(obj.scenarios || {}).length > 0) return true
+  if (Array.isArray(obj?.rationale) && obj.rationale.length > 0) return true
+  if (obj?.orderbook && Array.isArray(obj.orderbook.levels) && obj.orderbook.levels.length > 0) return true
+  if (obj?.levels?.sr && ((Array.isArray(obj.levels.sr.support) && obj.levels.sr.support.length > 0) || (Array.isArray(obj.levels.sr.resistance) && obj.levels.sr.resistance.length > 0))) return true
+  if (obj?.extracted && (obj.extracted.ticker || obj.extracted.timeframe)) return true
+  return false
+}
+
+function stubResponse(imageCount: number, meta: any, providers?: { vision: 'groq'|'openai'|'none', decision: 'groq'|'openai'|'none' }) {
   return {
     decision: 'hold',
     horizon: meta?.horizon ?? 'intraday',
@@ -284,7 +334,9 @@ function stubResponse(imageCount: number, meta: any) {
     orderbook: { spread: null, imbalance: null, pressure: 'neutral', levels: [] as OrderbookLevel[] },
     extracted: { ticker: meta?.ticker ?? null, market: meta?.market ?? 'JP', timeframe: meta?.timeframe ?? '15m' },
     confidence: 0.3,
-    notes: ['/api/analyze はフェイルセーフでスタブ返却中']
+    notes: ['/api/analyze はフェイルセーフでスタブ返却中'],
+    provider: providers?.decision ?? 'none',
+    providers: { vision: providers?.vision ?? 'none', decision: providers?.decision ?? 'none' }
   }
 }
 
@@ -302,48 +354,28 @@ function originFromReq(req: Request) {
   return `${url.protocol}//${url.host}`
 }
 
-async function computeDecision(meta: any, groqKey: string, openaiKey: string, extractionJSON: any, req: Request): Promise<{ data: any | null, error: string | null }> {
+async function computeDecision(meta: any, groqKey: string, openaiKey: string, extractionJSON: any, req: Request): Promise<{ data: any | null, error: string | null, provider: 'groq'|'openai'|'none' }> {
   let finalJSON: any | null = null
   let error: string | null = null
+  let used: 'groq'|'openai'|'none' = 'none'
+  const openaiModel = (meta?.openaiModel || 'gpt-4o-mini') as string
+  const preferOpenAI = meta?.provider === 'openai'
   const decisionInput = {
     meta,
     extracted: extractionJSON?.extracted ?? {},
     sr: extractionJSON?.levels?.sr ?? { support: [], resistance: [] },
     orderbook: extractionJSON?.orderbook ?? {},
   }
-  try {
-    const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': groqKey,
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-120b',
-        messages: [
-          { role: 'system', content: decisionPrompt },
-          { role: 'user', content: JSON.stringify(decisionInput) },
-        ],
-        temperature: 0.3,
-        response_format: { type: 'json_object' },
-      }),
-    })
-    if (!res.ok) error = `groq text ${res.status}`
-    const data = await res.json().catch(() => ({}))
-    const content = data?.choices?.[0]?.message?.content ?? '{}'
-    finalJSON = safeJson(content)
-  } catch (e) {
-    finalJSON = null
-    error = (e as any)?.message || 'decision error'
-  }
-
-  if (!finalJSON && openaiKey) {
+  if (groqKey && !preferOpenAI) {
     try {
-      const res = await fetch(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
+      const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': openaiKey },
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': groqKey,
+        },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'llama-3.1-70b-versatile',
           messages: [
             { role: 'system', content: decisionPrompt },
             { role: 'user', content: JSON.stringify(decisionInput) },
@@ -352,10 +384,51 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, ex
           response_format: { type: 'json_object' },
         }),
       })
-      if (!res.ok) error = `openai ${res.status}`
-      const data = await res.json().catch(() => ({}))
-      const content = data?.choices?.[0]?.message?.content ?? '{}'
-      finalJSON = safeJson(content)
+      try { console.log('[analyze] decision(groq) status', res.status, 'ok', res.ok) } catch {}
+      if (!res.ok) {
+        error = `groq text ${res.status}`
+        finalJSON = null
+      } else {
+        const data = await res.json().catch(() => ({}))
+        const content = data?.choices?.[0]?.message?.content ?? '{}'
+        try { console.log('[analyze] decision(groq) contentLen', (content || '{}').length) } catch {}
+        const raw = safeJson(content)
+        finalJSON = isMeaningful(raw) ? raw : null
+        used = finalJSON ? 'groq' : 'none'
+      }
+    } catch (e) {
+      finalJSON = null
+      error = (e as any)?.message || 'decision error'
+    }
+  }
+
+  if ((preferOpenAI && openaiKey) || (!finalJSON && openaiKey)) {
+    try {
+      const res = await fetch(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': openaiKey },
+        body: JSON.stringify({
+          model: openaiModel,
+          messages: [
+            { role: 'system', content: decisionPrompt },
+            { role: 'user', content: JSON.stringify(decisionInput) },
+          ],
+          temperature: 0.3,
+          response_format: { type: 'json_object' },
+        }),
+      })
+      try { console.log('[analyze] decision(openai) status', res.status, 'ok', res.ok) } catch {}
+      if (!res.ok) {
+        error = `openai ${res.status}`
+        finalJSON = null
+      } else {
+        const data = await res.json().catch(() => ({}))
+        const content = data?.choices?.[0]?.message?.content ?? '{}'
+        try { console.log('[analyze] decision(openai) contentLen', (content || '{}').length) } catch {}
+        const raw = safeJson(content)
+        finalJSON = isMeaningful(raw) ? raw : null
+        used = finalJSON ? 'openai' : 'none'
+      }
     } catch (e) {
       finalJSON = null
       error = (e as any)?.message || 'openai decision error'
@@ -367,7 +440,7 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, ex
     finalJSON = validateDecision(finalJSON, market)
     finalJSON = checkPlanConsistency(finalJSON, market)
   }
-  return { data: finalJSON, error }
+  return { data: finalJSON, error, provider: used }
 }
 
 function streamPhases(run: (send: (event: string, data: any) => void, progress: (pct: number, msg?: string) => void) => Promise<void>) {

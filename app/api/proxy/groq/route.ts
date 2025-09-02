@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     },
     body,
   })
+  try { console.log('[proxy:groq]', endpoint, 'status', res.status, 'ok', res.ok) } catch {}
 
   const hdr = new Headers(res.headers)
   hdr.set('x-proxy', 'groq')

@@ -24,6 +24,9 @@ export default function Page() {
     setLoading(true)
     setPhase('idle')
     setErrorMsg(null)
+    setResult(null)
+    setProgress(null)
+    setLastMeta(null)
     try {
       const fd = new FormData()
       // Preprocess images if enabled
@@ -59,7 +62,7 @@ export default function Page() {
         setErrorMsg('APIキーが未復号です。設定を開き、PINで「復号（使用可能に）」を押してください。')
         return
       }
-      const meta: any = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider: settings?.provider ?? 'groq', promptProfile: settings?.promptProfile ?? 'default' }
+      const meta: any = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider: settings?.provider ?? 'groq', promptProfile: settings?.promptProfile ?? 'default', openaiModel: settings?.openaiModel || 'gpt-4o-mini' }
       if (settings?.uiSource && settings.uiSource !== 'Auto') meta.uiSource = settings.uiSource
       if (!meta.uiSource && autoUi && autoUi !== 'Unknown') meta.uiSource = autoUi
       setLastMeta(meta)
@@ -99,7 +102,14 @@ export default function Page() {
                 setResult((prev: any) => ({ ...(prev || {}), extraction: evt.data }))
               } else if (evt.event === 'decision') {
                 setPhase('decision')
-                setResult(evt.data)
+                const d = evt.data
+                const isStub = Array.isArray(d?.notes) && d.notes.some((n: string) => n.includes('スタブ返却'))
+                const isNone = d?.provider === 'none' || d?.providers?.decision === 'none'
+                if (isStub || isNone) {
+                  setErrorMsg('モデル応答の整形に失敗したため結果を表示できませんでした。画像や設定を見直すか、別プロバイダ/プロファイルで再実行してください。')
+                } else {
+                  setResult(d)
+                }
               } else if (evt.event === 'end') {
                 setPhase('done')
               }
@@ -108,7 +118,13 @@ export default function Page() {
         }
       } else {
         const data = await res.json()
-        setResult(data)
+        const isStub = Array.isArray(data?.notes) && data.notes.some((n: string) => n.includes('スタブ返却'))
+        const isNone = data?.provider === 'none' || data?.providers?.decision === 'none'
+        if (isStub || isNone) {
+          setErrorMsg('モデル応答の整形に失敗したため結果を表示できませんでした。画像や設定を見直すか、別プロバイダ/プロファイルで再実行してください。')
+        } else {
+          setResult(data)
+        }
         setPhase('done')
       }
 
@@ -125,6 +141,8 @@ export default function Page() {
 
   async function reeval(withFiles: File[], meta: any) {
     setFiles(withFiles)
+    setResult(null)
+    setProgress(null)
     // reuse onAnalyze flow but with provided files/meta
     setLoading(true)
     setPhase('idle')
@@ -178,7 +196,13 @@ export default function Page() {
           throw new Error(`API error ${res.status}: ${txt}`)
         }
         const data = await res.json()
-        setResult(data)
+        const isStub = Array.isArray(data?.notes) && data.notes.some((n: string) => n.includes('スタブ返却'))
+        const isNone = data?.provider === 'none' || data?.providers?.decision === 'none'
+        if (isStub || isNone) {
+          setErrorMsg('モデル応答の整形に失敗したため結果を表示できませんでした。画像や設定を見直すか、別プロバイダ/プロファイルで再実行してください。')
+        } else {
+          setResult(data)
+        }
         setPhase('done')
       }
     } finally {

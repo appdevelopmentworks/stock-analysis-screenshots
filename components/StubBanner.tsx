@@ -2,11 +2,16 @@
 import { useEffect, useState } from 'react'
 
 const RUNTIME_KEYS = 'sta_runtime_keys_v1'
+const RUNTIME_KEYS_BACKUP = 'sta_runtime_keys_backup_v1'
 
 export function StubBanner() {
   const [stub, setStub] = useState(true)
   useEffect(() => {
-    const check = () => setStub(!sessionStorage.getItem(RUNTIME_KEYS))
+    const check = () => {
+      const hasSession = !!sessionStorage.getItem(RUNTIME_KEYS)
+      const hasBackup = !!localStorage.getItem(RUNTIME_KEYS_BACKUP)
+      setStub(!(hasSession || hasBackup))
+    }
     check()
     const onVis = () => check()
     window.addEventListener('visibilitychange', onVis)
@@ -23,4 +28,3 @@ export function StubBanner() {
     </div>
   )
 }
-

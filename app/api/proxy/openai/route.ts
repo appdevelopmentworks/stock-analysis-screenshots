@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     },
     body,
   })
+  try { console.log('[proxy:openai]', endpoint, 'status', res.status, 'ok', res.ok) } catch {}
 
   const hdr = new Headers(res.headers)
   hdr.set('x-proxy', 'openai')

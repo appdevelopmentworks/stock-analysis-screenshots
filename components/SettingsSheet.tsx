@@ -10,6 +10,7 @@ type Settings = {
   uiSource?: 'Auto' | 'SBI' | 'Rakuten' | 'Matsui' | 'TradingView'
   groqKey?: string
   openaiKey?: string
+  openaiModel?: string
   autoCompress?: boolean
   maxLongEdge?: number
   jpegQuality?: number
@@ -21,7 +22,7 @@ const RUNTIME_KEYS = 'sta_runtime_keys_v1' // session-only
 const RUNTIME_KEYS_BACKUP = 'sta_runtime_keys_backup_v1' // localStorage backup for iOS PWA
 
 export function SettingsSheet() {
-  const [s, setS] = useState<Settings>({ provider: 'groq', profile: 'balanced', tone: 'concise', promptProfile: 'default', uiSource: 'Auto', autoCompress: true, maxLongEdge: 1280, jpegQuality: 0.85 as any })
+  const [s, setS] = useState<Settings>({ provider: 'groq', profile: 'balanced', tone: 'concise', promptProfile: 'default', uiSource: 'Auto', openaiModel: 'gpt-4o-mini', autoCompress: true, maxLongEdge: 1280, jpegQuality: 0.85 as any })
   const [showKey, setShowKey] = useState(false)
   const [pin, setPin] = useState('')
   const [locked, setLocked] = useState(true)
@@ -30,7 +31,17 @@ export function SettingsSheet() {
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) setS({ ...s, ...JSON.parse(raw) })
+    const merged = raw ? { ...s, ...JSON.parse(raw) } : { ...s }
+    // Also hydrate keys from runtime backup so inputs reflect persisted keys
+    try {
+      const backup = localStorage.getItem(RUNTIME_KEYS_BACKUP)
+      if (backup) {
+        const obj = JSON.parse(backup)
+        if (obj?.groqKey) (merged as any).groqKey = obj.groqKey
+        if (obj?.openaiKey) (merged as any).openaiKey = obj.openaiKey
+      }
+    } catch {}
+    setS(merged)
     // Check if runtime keys exist in session
     const rk = sessionStorage.getItem(RUNTIME_KEYS)
     setLocked(!rk)
@@ -41,16 +52,35 @@ export function SettingsSheet() {
 
   async function save() {
     const pinNorm = (pin || '').trim()
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: s.provider, profile: s.profile, tone: s.tone, promptProfile: s.promptProfile, uiSource: s.uiSource, autoCompress: s.autoCompress, maxLongEdge: s.maxLongEdge, jpegQuality: s.jpegQuality, minLongEdge: (s as any).minLongEdge, minBlurScore: (s as any).minBlurScore, maxFileKB: (s as any).maxFileKB }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: s.provider, profile: s.profile, tone: s.tone, promptProfile: s.promptProfile, uiSource: s.uiSource, openaiModel: s.openaiModel, autoCompress: s.autoCompress, maxLongEdge: s.maxLongEdge, jpegQuality: s.jpegQuality, minLongEdge: (s as any).minLongEdge, minBlurScore: (s as any).minBlurScore, maxFileKB: (s as any).maxFileKB }))
     if (pinNorm && (s.groqKey || s.openaiKey)) {
       const encPayload: any = {}
       if (s.groqKey) encPayload.groq = await encryptString(s.groqKey, pinNorm)
       if (s.openaiKey) encPayload.openai = await encryptString(s.openaiKey, pinNorm)
       localStorage.setItem(ENC_KEY, JSON.stringify(encPayload))
-      alert('設定と暗号化済みキーを保存しました。復号して使用できます。')
+      // Also make keys immediately usable and persist for next visit
+      const rt: any = {}
+      if (s.groqKey) rt.groqKey = s.groqKey
+      if (s.openaiKey) rt.openaiKey = s.openaiKey
+      if (rt.groqKey || rt.openaiKey) {
+        sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(rt))
+        localStorage.setItem(RUNTIME_KEYS_BACKUP, JSON.stringify(rt))
+        setLocked(false)
+        setHasRuntime(true)
+      }
+      alert('設定と暗号化済みキーを保存しました。次回以降も自動で使用します（セキュリティのためPINの管理にご注意ください）。')
       return
     } else if ((s.groqKey || s.openaiKey) && !pinNorm) {
-      alert('APIキーを保存するにはPINを入力してください（暗号化保存）。PINなしの場合、下の「このセッションで使用」をご利用ください。')
+      // No PIN: store keys unencrypted for convenience and auto-use later
+      const rt: any = {}
+      if (s.groqKey) rt.groqKey = s.groqKey
+      if (s.openaiKey) rt.openaiKey = s.openaiKey
+      localStorage.setItem(RUNTIME_KEYS_BACKUP, JSON.stringify(rt))
+      sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(rt))
+      setLocked(false)
+      setHasRuntime(true)
+      alert('設定を保存し、APIキーを端末に平文で保持しました。次回から自動で使用します（PIN暗号化の利用を推奨）。')
+      return
     }
     alert('設定を保存しました（端末内）。')
   }
@@ -61,6 +91,28 @@ export function SettingsSheet() {
     if (kind === 'openai') delete next.openaiKey
     setS(next)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    // Also remove from runtime/session and backup if present
+    try {
+      const rtRaw = sessionStorage.getItem(RUNTIME_KEYS)
+      if (rtRaw) {
+        const rtObj = JSON.parse(rtRaw)
+        delete rtObj[`${kind}Key`]
+        if (rtObj.groqKey || rtObj.openaiKey) sessionStorage.setItem(RUNTIME_KEYS, JSON.stringify(rtObj))
+        else sessionStorage.removeItem(RUNTIME_KEYS)
+      }
+    } catch {}
+    try {
+      const bkRaw = localStorage.getItem(RUNTIME_KEYS_BACKUP)
+      if (bkRaw) {
+        const bkObj = JSON.parse(bkRaw)
+        delete bkObj[`${kind}Key`]
+        if (bkObj.groqKey || bkObj.openaiKey) localStorage.setItem(RUNTIME_KEYS_BACKUP, JSON.stringify(bkObj))
+        else localStorage.removeItem(RUNTIME_KEYS_BACKUP)
+      }
+    } catch {}
+    // Update runtime flags
+    const hasAny = !!sessionStorage.getItem(RUNTIME_KEYS) || !!localStorage.getItem(RUNTIME_KEYS_BACKUP)
+    setHasRuntime(hasAny)
   }
 
   async function unlock() {
@@ -105,9 +157,17 @@ export function SettingsSheet() {
       <div />
       <div className="grid gap-2">
         <label className="flex items-center gap-2">プロバイダ
-          <select value={s.provider} onChange={e => setS({ ...s, provider: e.target.value as any })} className="border rounded px-2 py-1">
+          <select value={s.provider} onChange={e => { const v = e.target.value as any; const next = { ...s, provider: v }; setS(next); try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'), provider: v })); } catch {} }} className="border rounded px-2 py-1">
             <option value="groq">Groq</option>
             <option value="openai">OpenAI</option>
+          </select>
+        </label>
+        {/* OpenAIモデル選択 */}
+        <label className="flex items-center gap-2">OpenAIモデル
+          <select value={s.openaiModel || 'gpt-4o-mini'} onChange={e => { const v = e.target.value; const next = { ...s, openaiModel: v }; setS(next); try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'), openaiModel: v })); } catch {} }} className="border rounded px-2 py-1">
+            <option value="gpt-4o-mini">gpt-4o-mini（推奨）</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="o4-mini">o4-mini</option>
           </select>
         </label>
         <div className="flex items-center"><span className="mr-2">表示:</span>{/* inline theme toggle */}{require('./ThemeToggle').ThemeToggle()}</div>
