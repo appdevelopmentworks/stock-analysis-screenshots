@@ -47,6 +47,19 @@ export function getPrompts(profile: PromptProfile = 'default') {
   return { vision: visionExtractionPrompt, decision: decisionPrompt, temps: { vision: 0.2, decision: 0.3 } }
 }
 
+// Default OpenAI model by profile
+export function defaultOpenAIModel(profile: string | undefined) {
+  switch (profile) {
+    case 'fast':
+      return 'gpt-4o-mini'
+    case 'quality':
+      return 'gpt-4o'
+    case 'balanced':
+    default:
+      return 'gpt-4o-mini'
+  }
+}
+
 export function getUiHints(ui?: string) {
   switch (ui) {
     case 'SBI':
