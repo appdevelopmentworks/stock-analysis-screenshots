@@ -55,11 +55,15 @@ export default function Page() {
     setHistoryId(null)
     try {
       const fd = new FormData()
-      // Preprocess images if enabled
+      // Preprocess images if enabled (force for HEIC/HEIF on iOS)
       const settings = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('sta_settings_v1') || '{}') : {}
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+      const isiOS = /iPhone|iPad|iPod/.test(ua)
+      const hasHeic = files.some(f => /heic|heif/i.test(f.type) || /\.heic$|\.heif$/i.test(f.name))
+      const needForceConvert = isiOS && hasHeic
       // record pre metrics
       const preMetrics = await Promise.all(files.map(async (f) => ({ name: f.name, before: await analyzeImageQuality(f) })))
-      const pre = await preprocessIfNeeded(files, { autoCompress: !!settings?.autoCompress, maxLongEdge: settings?.maxLongEdge ?? 1280, quality: settings?.jpegQuality ?? 0.85 })
+      const pre = await preprocessIfNeeded(files, { autoCompress: (!!settings?.autoCompress) || needForceConvert, maxLongEdge: settings?.maxLongEdge ?? 1280, quality: settings?.jpegQuality ?? 0.85 })
       const postMetrics = await Promise.all(pre.map(async (f) => ({ after: await analyzeImageQuality(f) })))
       const combined = preMetrics.map((m, i) => ({ name: m.name, ...m.before, after: postMetrics[i]?.after }))
       setPreprocInfo(combined)
@@ -99,8 +103,6 @@ export default function Page() {
       setLastMeta(meta)
       fd.append('meta', JSON.stringify(meta))
       // iOS Safari は fetch のSSEストリーミングが不安定なためオフにする
-      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
-      const isiOS = /iPhone|iPad|iPod/.test(ua)
       const headers: Record<string, string> = {}
       if (!isiOS) headers['X-Stream'] = '1'
       if (runtime?.groqKey) headers['X-API-Key'] = runtime.groqKey

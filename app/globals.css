@@ -26,11 +26,11 @@
   --link: #0ea5e9;
 }
 .dark {
-  --background: #0b1220;        /* deep navy */
+  --background: #00008b;        /* darkblue */
   --foreground: #e6edf3;        /* high contrast */
   --muted-foreground: #b6c2d2;  /* softer text */
-  --card: #131c2b;              /* slightly raised */
-  --border: #263244;            /* visible border */
+  --card: #0a0a5a;              /* slightly raised against darkblue */
+  --border: #1a1a7a;            /* visible border */
   --primary: #60a5fa;           /* light blue for dark bg */
   --primary-foreground: #0b1220;
   --link: #7dd3fc;              /* sky-300 */
