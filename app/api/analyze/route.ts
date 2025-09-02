@@ -35,8 +35,9 @@ export async function POST(req: Request) {
 
   const promptProfile: PromptProfile = (meta?.promptProfile ?? 'default') as any
   const pp = getPrompts(promptProfile)
-  const openaiModel = ((meta?.openaiModel === 'auto' || !meta?.openaiModel) ? defaultOpenAIModel(meta?.profile) : meta?.openaiModel) as string
-  try { console.log('[analyze] meta.provider', meta?.provider, 'openaiModel', openaiModel) } catch {}
+  const visionSelected = (meta?.model ?? meta?.openaiModel) as string | undefined
+  const openaiModel = ((visionSelected === 'auto' || !visionSelected) ? defaultOpenAIModel(meta?.profile) : visionSelected) as string
+  try { console.log('[analyze] meta.provider', meta?.provider, 'model', openaiModel) } catch {}
 
   // 1) Vision extraction（ユーザ設定のproviderを優先）
   let extractionJSON: any | null = null
@@ -93,27 +94,25 @@ export async function POST(req: Request) {
   } else if (openaiKey) {
     // OpenAI-only path
     try {
+      const visionPayload: any = {
+        model: openaiModel,
+        messages: [
+          { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + getUiHints(meta.uiSource) : '') },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
+              ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+      }
+      if (!openAIModelRequiresDefaultTemp(openaiModel)) visionPayload.temperature = pp.temps.vision
       const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': openaiKey,
-        },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [
-            { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + getUiHints(meta.uiSource) : '') },
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
-                ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
-              ],
-            },
-          ],
-          temperature: pp.temps.vision,
-          response_format: { type: 'json_object' },
-        }),
+        headers: { 'content-type': 'application/json', 'x-api-key': openaiKey },
+        body: JSON.stringify(visionPayload),
       })
       try { console.log('[analyze] vision(openai) status', res.status, 'ok', res.ok) } catch {}
       if (!res.ok) extractionErr = `openai vision ${res.status}`
@@ -142,27 +141,28 @@ export async function POST(req: Request) {
       if ((!extractionJSON || Object.keys(extractionJSON || {}).length === 0) && (openaiKey || (req.headers.get('x-openrouter-key') || ''))) {
         try {
           const useOR = !openaiKey && !!(req.headers.get('x-openrouter-key') || '')
+          const fallbackPayload: any = {
+            model: openaiModel,
+            messages: [
+              { role: 'system', content: pp.vision },
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
+                  ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+                ],
+              },
+            ],
+            response_format: { type: 'json_object' },
+          }
+          if (!openAIModelRequiresDefaultTemp(openaiModel)) fallbackPayload.temperature = pp.temps.vision
           const res = await fetch(`${originFromReq(req)}${useOR ? '/api/proxy/openrouter' : '/api/proxy/openai'}?endpoint=/v1/chat/completions`, {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
               ...(useOR ? { 'x-openrouter-key': (req.headers.get('x-openrouter-key') || '') } : { 'x-api-key': openaiKey }),
             },
-            body: JSON.stringify({
-              model: openaiModel,
-              messages: [
-                { role: 'system', content: pp.vision },
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
-                    ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
-                  ],
-                },
-              ],
-              temperature: pp.temps.vision,
-              response_format: { type: 'json_object' },
-            }),
+            body: JSON.stringify(fallbackPayload),
           })
           send('log', { stage: 'vision', provider: useOR ? 'openrouter:fallback' : 'openai:fallback', status: res.status, ok: res.ok })
           const data = await res.json().catch(() => ({}))
@@ -235,18 +235,20 @@ export async function POST(req: Request) {
   if ((preferOpenAI && openaiKey) || (!finalJSON && openaiKey)) {
     // Fallback to OpenAI (gpt-4o-mini)
     try {
+      const decisionPayload: any = {
+        model: openaiModel,
+        messages: [
+          { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + getUiHints(extractionJSON.extracted.uiSource) : '') },
+          { role: 'user', content: JSON.stringify(decisionInput) },
+        ],
+        response_format: { type: 'json_object' },
+      }
+      if (!openAIModelRequiresDefaultTemp(openaiModel)) decisionPayload.temperature = pp.temps.decision
+      try { console.log('[analyze] decision(openai) model', openaiModel) } catch {}
       const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': openaiKey },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [
-            { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + getUiHints(extractionJSON.extracted.uiSource) : '') },
-            { role: 'user', content: JSON.stringify(decisionInput) },
-          ],
-          temperature: pp.temps.decision,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(decisionPayload),
       })
       try { console.log('[analyze] decision(openai) status', res.status, 'ok', res.ok) } catch {}
       if (!res.ok) {
@@ -265,18 +267,19 @@ export async function POST(req: Request) {
 
   if (!finalJSON && (preferOpenRouter || openrouterKey)) {
     try {
+      const orDecisionPayload: any = {
+        model: openaiModel,
+        messages: [
+          { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + getUiHints(extractionJSON.extracted.uiSource) : '') },
+          { role: 'user', content: JSON.stringify(decisionInput) },
+        ],
+        response_format: { type: 'json_object' },
+      }
+      if (!openAIModelRequiresDefaultTemp(openaiModel)) orDecisionPayload.temperature = pp.temps.decision
       const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openrouter?endpoint=/v1/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-openrouter-key': (req.headers.get('x-openrouter-key') || '') },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [
-            { role: 'system', content: pp.decision + (extractionJSON?.extracted?.uiSource ? "\n" + getUiHints(extractionJSON.extracted.uiSource) : '') },
-            { role: 'user', content: JSON.stringify(decisionInput) },
-          ],
-          temperature: pp.temps.decision,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(orDecisionPayload),
       })
       try { console.log('[analyze] decision(openrouter) status', res.status, 'ok', res.ok) } catch {}
       if (!res.ok) {
@@ -392,6 +395,16 @@ function originFromReq(req: Request) {
   return `${url.protocol}//${url.host}`
 }
 
+function openAIModelRequiresDefaultTemp(model: string) {
+  if (!model) return false
+  // OpenAI's gpt-5 / gpt-4.1 families currently only support default temperature (1)
+  // o4/o4-mini (reasoning) families、gpt-4o系もデフォルト固定
+  return /^gpt-5/i.test(model)
+    || /^gpt-4\.1/i.test(model)
+    || /^o4/i.test(model)
+    || /^gpt-4o/i.test(model)
+}
+
 async function fetchWithRetry(url: string, init: RequestInit, opts: { retries?: number; timeoutMs?: number } = {}) {
   const { retries = 2, timeoutMs = 15000 } = opts
   let lastErr: any = null
@@ -479,7 +492,7 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, op
           temperature: 0.3,
           response_format: { type: 'json_object' },
         }),
-      })
+      }, { retries: 0, timeoutMs: 15000 })
       try { console.log('[analyze] decision(openai) status', res.status, 'ok', res.ok) } catch {}
       if (!res.ok) {
         error = `openai ${res.status}`
@@ -511,7 +524,7 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, op
           temperature: 0.3,
           response_format: { type: 'json_object' },
         }),
-      })
+      }, { retries: 0, timeoutMs: 25000 })
       if (!res.ok) error = `openrouter ${res.status}`
       const data = await res.json().catch(() => ({}))
       const content = data?.choices?.[0]?.message?.content ?? '{}'

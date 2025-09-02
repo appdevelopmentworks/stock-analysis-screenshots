@@ -198,6 +198,10 @@ export function SettingsSheet() {
                 <option value="auto">Auto（プロファイルに応じ選択）</option>
                 <option value="gpt-4o-mini">gpt-4o-mini（推奨）</option>
                 <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
+                <option value="gpt-5-mini">gpt-5-mini</option>
+                <option value="gpt-5">gpt-5</option>
                 <option value="o4-mini">o4-mini</option>
               </>
             )}
@@ -218,12 +222,7 @@ export function SettingsSheet() {
                 )}
               </>
             )}
-            {s.provider === 'groq' && (
-              <>
-                <option value="auto">Auto（プロファイルに応じ選択）</option>
-                <option value="llama-3.1-70b-versatile">llama-3.1-70b-versatile</option>
-              </>
-            )}
+            {/* Groqのモデルは不具合回避のため一時的に非表示 */}
           </select>
         </label>
         <div className="flex items-center"><span className="mr-2">表示:</span>{/* inline theme toggle */}{require('./ThemeToggle').ThemeToggle()}</div>

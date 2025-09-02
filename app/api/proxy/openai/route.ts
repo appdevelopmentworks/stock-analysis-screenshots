@@ -33,6 +33,12 @@ export async function POST(req: Request) {
   hdr.set('access-control-allow-origin', '*')
   hdr.set('access-control-allow-headers', 'content-type, authorization, x-api-key')
   hdr.set('access-control-allow-methods', 'POST, OPTIONS')
+  if (!res.ok) {
+    // Log error body to help diagnose 400s, then return it unchanged
+    const text = await res.text().catch(() => '')
+    try { console.log('[proxy:openai:body]', text.slice(0, 500)) } catch {}
+    return new Response(text, { status: res.status, headers: hdr })
+  }
   return new Response(res.body, { status: res.status, headers: hdr })
 }
 
