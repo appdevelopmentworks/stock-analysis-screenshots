@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { SettingsSheet } from '@/components/SettingsSheet'
+import { useRouter } from 'next/navigation'
 import { StubBanner } from '@/components/StubBanner'
 import { HistoryDrawer } from '@/components/HistoryDrawer'
 import { addHistory, fileToDataUrl } from '@/lib/history'
@@ -11,6 +12,7 @@ import { detectUiSourceFromImage } from '@/lib/ui-detect'
 import { Button } from '@/components/ui/Button'
 
 export default function Page() {
+  const router = useRouter()
   const [files, setFiles] = useState<File[]>([])
   const [result, setResult] = useState<any>(null)
   const [phase, setPhase] = useState<'idle'|'extraction'|'decision'|'done'>('idle')
@@ -172,6 +174,11 @@ export default function Page() {
         const entry = { id, meta: lastMeta || {}, files: fileData, result }
         await addHistory(entry as any)
         setHistoryId(id)
+        // Mobile-friendly: auto navigate to result page on small screens
+        try {
+          const isMobile = window.matchMedia('(max-width: 768px)').matches
+          if (isMobile) router.push(`/result?id=${encodeURIComponent(id)}`)
+        } catch {}
       }
     } finally {
       setLoading(false)
