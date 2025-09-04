@@ -1,12 +1,14 @@
 "use client"
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getHistory } from '@/lib/history'
 import { ResultPane } from '@/components/ResultPane'
 import { Button } from '@/components/ui/Button'
 
-export default function ResultPage() {
+export const dynamic = 'force-dynamic'
+
+function ResultContent() {
   const sp = useSearchParams()
   const id = sp.get('id') || ''
   const [entry, setEntry] = useState<any>(null)
@@ -35,5 +37,13 @@ export default function ResultPage() {
       {error && <div className="text-sm text-rose-500">{error}</div>}
       {entry && <ResultPane data={entry.result} meta={entry.meta} historyId={entry.id} />}
     </main>
-  )}
+  )
+}
 
+export default function ResultPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto p-4 max-w-3xl text-sm">読み込み中...</div>}>
+      <ResultContent />
+    </Suspense>
+  )
+}
