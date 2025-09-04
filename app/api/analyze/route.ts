@@ -392,7 +392,11 @@ export async function POST(req: Request) {
     if (parsed.success) {
       const enriched: any = { ...parsed.data }
       // annotate providers used（実際に使ったproviderを推定）
-      const decisionProvider = (!groqKey && openaiKey) ? 'openai' : (groqKey && !openaiKey) ? 'groq' : (preferOpenAI ? 'openai' : (visionProvider === 'openai' ? 'openai' : 'groq'))
+      const decisionProvider = (preferOpenAI && openaiKey)
+        ? 'openai'
+        : (preferOpenRouter && (req.headers.get('x-openrouter-key') || ''))
+        ? 'openrouter'
+        : (groqKey ? 'groq' : (openaiKey ? 'openai' : ((req.headers.get('x-openrouter-key') || '') ? 'openrouter' : 'none')))
       enriched.provider = decisionProvider as any
       enriched.providers = { vision: visionProvider, decision: decisionProvider as any }
       // add notes about board irregularities
@@ -452,7 +456,7 @@ function isMeaningful(obj: any) {
   return false
 }
 
-function stubResponse(imageCount: number, meta: any, providers?: { vision: 'groq'|'openai'|'none', decision: 'groq'|'openai'|'none' }) {
+function stubResponse(imageCount: number, meta: any, providers?: { vision: 'groq'|'openai'|'openrouter'|'none', decision: 'groq'|'openai'|'openrouter'|'none' }) {
   return {
     decision: 'hold',
     horizon: meta?.horizon ?? 'intraday',
