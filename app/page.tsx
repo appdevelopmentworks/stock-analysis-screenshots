@@ -91,13 +91,14 @@ export default function Page() {
         ? (JSON.parse(sessionStorage.getItem('sta_runtime_keys_v1') || 'null')
           || JSON.parse(localStorage.getItem('sta_runtime_keys_backup_v1') || 'null') || {})
         : {}
-      if (!runtime?.groqKey && !runtime?.openaiKey && !runtime?.openrouterKey) {
+      if (!runtime?.openaiKey && !runtime?.openrouterKey) {
         setLoading(false)
         setProgress(null)
         setErrorMsg('APIキーが未復号です。設定を開き、PINで「復号（使用可能に）」を押してください。')
         return
       }
-      const meta: any = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider: settings?.provider ?? 'groq', promptProfile: settings?.promptProfile ?? 'default', model: settings?.model || settings?.openaiModel || 'gpt-4o-mini' }
+      const provider = (settings?.provider === 'groq') ? 'openrouter' : (settings?.provider ?? 'openrouter')
+      const meta: any = { market: 'JP', tone: settings?.tone ?? 'concise', profile: settings?.profile ?? 'balanced', provider, promptProfile: settings?.promptProfile ?? 'default', model: settings?.model || settings?.openaiModel || 'gpt-4o-mini' }
       if (settings?.uiSource && settings.uiSource !== 'Auto') meta.uiSource = settings.uiSource
       if (!meta.uiSource && autoUi && autoUi !== 'Unknown') meta.uiSource = autoUi
       setLastMeta(meta)
@@ -105,7 +106,6 @@ export default function Page() {
       // iOS Safari は fetch のSSEストリーミングが不安定なためオフにする
       const headers: Record<string, string> = {}
       if (!isiOS) headers['X-Stream'] = '1'
-      if (runtime?.groqKey) headers['X-API-Key'] = runtime.groqKey
       if (runtime?.openaiKey) headers['X-OpenAI-Key'] = runtime.openaiKey
       if (runtime?.openrouterKey) headers['X-OpenRouter-Key'] = runtime.openrouterKey
       const res = await fetch('/api/analyze', { method: 'POST', body: fd, headers })
@@ -198,8 +198,8 @@ export default function Page() {
           || JSON.parse(localStorage.getItem('sta_runtime_keys_backup_v1') || 'null') || {})
         : {}
       const headers: Record<string, string> = { 'X-Stream': '1' }
-      if (runtime?.groqKey) headers['X-API-Key'] = runtime.groqKey
       if (runtime?.openaiKey) headers['X-OpenAI-Key'] = runtime.openaiKey
+      if (runtime?.openrouterKey) headers['X-OpenRouter-Key'] = runtime.openrouterKey
       const res = await fetch('/api/analyze', { method: 'POST', body: fd, headers })
       const isStream = (res.headers.get('content-type') || '').includes('text/event-stream')
       if (isStream && res.body) {
@@ -265,6 +265,11 @@ export default function Page() {
           </div>
         </details>
         <HistoryDrawer onReevaluate={reeval} />
+        {historyId && (
+          <div className="-mt-2">
+            <a href={`/result?id=${encodeURIComponent(historyId)}`} className="text-sm underline">結果を別ページで開く（モバイル向け）</a>
+          </div>
+        )}
         <Button onClick={onAnalyze} disabled={!files.length || loading}>
           {loading ? '解析中…' : '解析する'}
         </Button>
@@ -294,11 +299,7 @@ export default function Page() {
                 const meta = { market: 'JP', tone: s?.tone ?? 'concise', profile: s?.profile ?? 'balanced', provider: 'openai', promptProfile: s?.promptProfile ?? 'default', model: s?.model || s?.openaiModel || 'gpt-4o-mini' }
                 await reeval(files, meta as any)
               }} variant="outline">OpenAIで再試行</Button>
-              <Button onClick={async () => {
-                const s = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('sta_settings_v1') || '{}') : {}
-                const meta = { market: 'JP', tone: s?.tone ?? 'concise', profile: s?.profile ?? 'balanced', provider: 'groq', promptProfile: s?.promptProfile ?? 'default', model: s?.model || s?.openaiModel || 'gpt-4o-mini' }
-                await reeval(files, meta as any)
-              }} variant="outline">Groqで再試行</Button>
+              {/* Groq 再試行は削除 */}
               <Button onClick={async () => {
                 const s = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('sta_settings_v1') || '{}') : {}
                 const meta = { market: 'JP', tone: s?.tone ?? 'concise', profile: s?.profile ?? 'balanced', provider: 'openrouter', promptProfile: s?.promptProfile ?? 'default', model: s?.model || s?.openaiModel || 'openai/gpt-4o-mini' }

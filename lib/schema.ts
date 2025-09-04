@@ -73,6 +73,30 @@ export const AnalysisSchema = z.object({
         .optional(),
     })
     .optional(),
+  fundamentals: z
+    .object({
+      company: z.string().optional(),
+      ticker: z.string().optional(),
+      period: z.string().optional(),
+      revenue: z.number().optional(),
+      operatingIncome: z.number().optional(),
+      netIncome: z.number().optional(),
+      eps: z.number().optional(),
+      guidance: z.string().optional(),
+      yoy: z
+        .object({ revenue: z.number().optional(), netIncome: z.number().optional(), eps: z.number().optional() })
+        .optional(),
+      qoq: z
+        .object({ revenue: z.number().optional(), netIncome: z.number().optional(), eps: z.number().optional() })
+        .optional(),
+      valuation: z
+        .object({ per: z.number().optional(), pbr: z.number().optional(), dividendYield: z.number().optional() })
+        .optional(),
+      segments: z.array(z.object({ name: z.string(), revenue: z.number().optional(), yoy: z.number().optional() })).optional(),
+      highlights: z.array(z.string()).optional(),
+      risks: z.array(z.string()).optional(),
+    })
+    .optional(),
 })
 
 export type Analysis = z.infer<typeof AnalysisSchema>

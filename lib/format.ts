@@ -20,7 +20,9 @@ export function formatMarkdown(analysis: Analysis, opts: { meta?: any; level?: '
   ]
 
   const planTitle = `推奨される売買とその理由（教育目的）`
-  const decisionLine = `結論：${analysis.decision}（${analysis.horizon}）`
+  const decisionSafe = (analysis as any).decision ?? 'hold'
+  const horizonSafe = (analysis as any).horizon ?? 'intraday'
+  const decisionLine = `結論：${decisionSafe}（${horizonSafe}）`
   const entry = analysis.levels?.entry != null ? `${analysis.levels.entry}` : '—'
   const sl = analysis.levels?.sl != null ? `${analysis.levels.sl}` : '—'
   const tp = Array.isArray(analysis.levels?.tp) ? analysis.levels!.tp!.slice(0,3).join(', ') : '—'
@@ -34,6 +36,24 @@ export function formatMarkdown(analysis: Analysis, opts: { meta?: any; level?: '
     `- 根拠:\n${reasons}`,
   ]
 
+  // Fundamentals summary (if present)
+  const f: any = (analysis as any).fundamentals || {}
+  const fundamentals: string[] = []
+  if (Object.keys(f).length) {
+    fundamentals.push(`# ファンダメンタル要約`)
+    const kpi: string[] = []
+    if (f.revenue != null) kpi.push(`売上: ${f.revenue}`)
+    if (f.operatingIncome != null) kpi.push(`営業益: ${f.operatingIncome}`)
+    if (f.netIncome != null) kpi.push(`純益: ${f.netIncome}`)
+    if (f.eps != null) kpi.push(`EPS: ${f.eps}`)
+    if (kpi.length) fundamentals.push(`- KPI: ${kpi.join(' / ')}`)
+    if (f.valuation && (f.valuation.per!=null || f.valuation.pbr!=null || f.valuation.dividendYield!=null)) {
+      fundamentals.push(`- Valuation: PER=${f.valuation.per ?? '—'} / PBR=${f.valuation.pbr ?? '—'} / 配当利回り=${f.valuation.dividendYield ?? '—'}`)
+    }
+    if (Array.isArray(f.highlights) && f.highlights.length) fundamentals.push(`- ポジ要因: ${f.highlights.slice(0,3).join(' / ')}`)
+    if (Array.isArray(f.risks) && f.risks.length) fundamentals.push(`- リスク: ${f.risks.slice(0,3).join(' / ')}`)
+  }
+
   const risk = [
     `# リスク管理プラン`,
     `- 想定資金/許容損失: ${meta?.capital ?? '—'} / ${meta?.riskPct ?? '—'}%（仮定可）`,
@@ -43,13 +63,13 @@ export function formatMarkdown(analysis: Analysis, opts: { meta?: any; level?: '
 
   const summary = [
     `# まとめ`,
-    `- ${analysis.decision}（${analysis.horizon}）`,
+    `- ${decisionSafe}（${horizonSafe}）`,
     `- S/R: S=${sr.support?.[0] ?? '—'} / R=${sr.resistance?.[0] ?? '—'}`,
     `- 次に欲しい情報：時間軸の明示、直近イベント（決算/指標）`
   ]
 
   if (level === 'concise') {
-    return [...base, ...plan, ...summary].join('\n')
+    return [...base, ...fundamentals, ...plan, ...summary].filter(Boolean).join('\n')
   }
   // learning: add a bit more guidance text
   const learnSections: string[] = []
@@ -66,7 +86,7 @@ export function formatMarkdown(analysis: Analysis, opts: { meta?: any; level?: '
   const learn = [
     `> 学習メモ: トレンド方向と出来高/板の裏付けが一致した時のみ積極的。否定ライン（損切）を先に置き、RRが1.5以上見込めない場合は見送りも選択肢。`,
   ]
-  return [...base, ...plan, ...risk, ...learnSections, ...learn, ...summary].join('\n')
+  return [...base, ...fundamentals, ...plan, ...risk, ...learnSections, ...learn, ...summary].filter(Boolean).join('\n')
 }
 
 export function formatScenarioMarkdown(analysis: any) {

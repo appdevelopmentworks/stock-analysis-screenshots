@@ -20,6 +20,7 @@ export function ResultPane({ data, meta, historyId }: Props) {
     ? `Vision: ${label(providers.vision)} / Decision: ${label(providers.decision ?? data.provider)}`
     : null
   const extraction = (data as any).extraction
+  const fundamentals: any = (data as any).fundamentals
 
   async function copy(text: string, kind: 'json'|'md') {
     try {
@@ -87,6 +88,49 @@ export function ResultPane({ data, meta, historyId }: Props) {
         {/* naive markdown rendering: pre for now */}
         <pre className="bg-card text-foreground border border-default p-3 rounded overflow-auto text-sm whitespace-pre-wrap">{md}</pre>
       </div>
+      {fundamentals && (
+        <details className="rounded border border-default bg-card text-foreground px-3 py-2 text-xs">
+          <summary>ファンダメンタル詳細</summary>
+          <div className="mt-2 grid gap-2">
+            <div>会社: {fundamentals.company ?? '—'} / ティッカー: {fundamentals.ticker ?? '—'} / 期間: {fundamentals.period ?? '—'}</div>
+            <div className="overflow-auto">
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="text-left">
+                    <th className="pr-4">指標</th>
+                    <th>値</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fundamentals.revenue != null && (<tr><td className="pr-4">売上</td><td>{fundamentals.revenue}</td></tr>)}
+                  {fundamentals.operatingIncome != null && (<tr><td className="pr-4">営業益</td><td>{fundamentals.operatingIncome}</td></tr>)}
+                  {fundamentals.netIncome != null && (<tr><td className="pr-4">純益</td><td>{fundamentals.netIncome}</td></tr>)}
+                  {fundamentals.eps != null && (<tr><td className="pr-4">EPS</td><td>{fundamentals.eps}</td></tr>)}
+                  {fundamentals.valuation && (
+                    <tr><td className="pr-4">Valuation</td><td>PER={fundamentals.valuation.per ?? '—'} / PBR={fundamentals.valuation.pbr ?? '—'} / 配当利回り={fundamentals.valuation.dividendYield ?? '—'}</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {(Array.isArray(fundamentals.segments) && fundamentals.segments.length > 0) && (
+              <div>
+                <div className="font-semibold mb-1">セグメント</div>
+                <ul className="list-disc ml-5">
+                  {fundamentals.segments.slice(0,5).map((s:any, i:number) => (
+                    <li key={i}>{s.name}: 売上={s.revenue ?? '—'} / YoY={s.yoy ?? '—'}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(Array.isArray(fundamentals.highlights) && fundamentals.highlights.length > 0) && (
+              <div>ポジ要因: {fundamentals.highlights.slice(0,5).join(' / ')}</div>
+            )}
+            {(Array.isArray(fundamentals.risks) && fundamentals.risks.length > 0) && (
+              <div>リスク: {fundamentals.risks.slice(0,5).join(' / ')}</div>
+            )}
+          </div>
+        </details>
+      )}
       { (scenarios.base || scenarios.bull || scenarios.bear) && (
         <div className="grid gap-3">
           <h3 className="font-medium">シナリオ</h3>

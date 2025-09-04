@@ -1,41 +1,45 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- App: `app/` (Next.js 15 App Router). Pages like `/`, `/tests` and API routes under `app/api/*` (Edge runtime).
-- Components: `components/` (UI + feature components). Prefer `PascalCase` files for React components.
+- App: `app/` (Next.js 15 App Router, Edge API under `app/api/*`). Main page `/`, diagnostics `/tests`.
+- Components: `components/` (UI + feature components). Use PascalCase filenames.
 - Library: `lib/` (prompts, validation, crypto, image utils, UI-detect, schemas, formatting).
 - Public/PWA: `public/` (assets, `manifest.json`), `service-worker.ts`.
-- Docs: `docs/` (requirements/instructions). Root `AGENTS.md` is this guide.
+- Docs: `docs/` (requirements/instructions). This guide: `AGENTS.md`.
 
 ## Build, Test, and Development Commands
-- Dev server: `pnpm dev` (Next.js dev with HMR).
-- Build: `pnpm build` (production build; Edge API routes included).
-- Start: `pnpm start` (serve production build).
-- Type-check: `npx tsc --noEmit` (strict TS checks).
-- Lint: `pnpm lint` (ESLint: next/core-web-vitals).
-- Browser tests: open `/tests` (runs lightweight checks in the browser).
+- Dev: `pnpm dev` — run Next.js dev server with HMR.
+- Build: `pnpm build` — create production build (Edge API included).
+- Start: `pnpm start` — serve the production build.
+- Type-check: `npx tsc --noEmit` — strict TypeScript checks.
+- Lint: `pnpm lint` — ESLint (next/core-web-vitals).
+- Browser tests: visit `/tests` while dev server runs.
 
 ## Coding Style & Naming Conventions
-- Language: TypeScript, React Server/Client components.
-- Indentation: 2 spaces; max line length ~100 where feasible.
-- Naming: `PascalCase` for components, `camelCase` for vars/functions, `kebab-case` for route/asset files.
-- Styling: TailwindCSS; theme tokens in `app/globals.css` (use CSS vars like `--background`, `--foreground`).
-- Linting: ESLint (extends Next defaults). Prefer narrow, typed utilities in `lib/`.
+- Language: TypeScript (React Server/Client components).
+- Indentation: 2 spaces; target ≤ ~100 chars/line where feasible.
+- Naming: Components in PascalCase; variables/functions in camelCase; routes/assets in kebab-case.
+- Styling: TailwindCSS; theme tokens in `app/globals.css` (e.g., `--background`, `--foreground`).
+- Keep utilities small and typed in `lib/`.
 
 ## Testing Guidelines
-- Minimal browser-based tests at `app/tests/page.tsx` (visit `/tests`).
-- Add unit tests alongside modules if expanded (e.g., `lib/__tests__/*.test.ts`).
-- Goal: validate parsing/formatting/validation utilities first; avoid network in unit tests.
+- Prefer unit tests for pure utilities first (e.g., `lib/__tests__/*.test.ts`).
+- Avoid network calls in unit tests; mock inputs/outputs.
+- Smoke checks live at `app/tests/page.tsx` (open in the browser).
 
 ## Commit & Pull Request Guidelines
-- Commits: prefer Conventional Commits style
-  - Examples: `feat: add iOS non-SSE fallback`, `fix: snap to tick for JP`, `chore: bump colors for readability`.
-- PRs: include scope/intent, screenshots or JSON diffs for UI/API, link issues, and brief testing notes (desktop/mobile).
+- Commits: use Conventional Commits. Examples:
+  - `feat: auto-switch to fundamentals profile`
+  - `fix: skip temperature for gpt-4o family`
+  - `chore: tweak dark theme to darkblue`
+- PRs: describe scope/intent, include screenshots or JSON diffs for UI/API, link issues, and add brief testing notes (desktop/mobile, iOS/Android).
 
 ## Security & Configuration Tips
-- API keys are BYO and must not be committed. Keys are encrypted client-side (PIN) and stored only in the browser; session use is allowed.
-- No server persistence; images are transient. Proxies at `/api/proxy/{groq,openai}` pass keys via `X-API-Key`.
-- Optional: `NEXT_PUBLIC_SENTRY_DSN` for browser error capture.
+- BYO API keys; never commit credentials. Keys are encrypted client‑side (PIN) and stored only in the browser.
+- Proxies: `/api/proxy/{openrouter,openai,groq}` pass keys via headers (e.g., `X-OpenRouter-Key`, `X-OpenAI-Key`, `X-API-Key`).
+- No server persistence; images are transient. Optional `NEXT_PUBLIC_SENTRY_DSN` for browser error capture.
 
 ## Architecture Overview (Quick)
-- Next.js 15 App Router + Edge API. Pipeline: image upload → vision extraction → normalization/validation → decision JSON → formatted output. Model providers: Groq (primary), OpenAI (fallback).
+- Pipeline: image upload → vision extraction → normalization/validation → decision JSON → formatted output.
+- Providers: OpenRouter (Claude/Gemini), OpenAI, Groq. Auto profile can switch to fundamentals based on screenshot content.
+

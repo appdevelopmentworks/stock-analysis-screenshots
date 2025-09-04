@@ -33,20 +33,62 @@ export async function POST(req: Request) {
     images.push(`data:${mime};base64,${b64}`)
   }
 
-  const promptProfile: PromptProfile = (meta?.promptProfile ?? 'default') as any
-  const pp = getPrompts(promptProfile)
+  let promptProfile: PromptProfile = (meta?.promptProfile ?? 'default') as any
+  let pp = getPrompts(promptProfile)
   const visionSelected = (meta?.model ?? meta?.openaiModel) as string | undefined
-  const openaiModel = ((visionSelected === 'auto' || !visionSelected) ? defaultOpenAIModel(meta?.profile) : visionSelected) as string
+  let openaiModel = ((visionSelected === 'auto' || !visionSelected) ? defaultOpenAIModel(meta?.profile) : visionSelected) as string
   try { console.log('[analyze] meta.provider', meta?.provider, 'model', openaiModel) } catch {}
 
   // 1) Vision extraction（ユーザ設定のproviderを優先）
   let extractionJSON: any | null = null
   let extractionErr: string | null = null
-  let visionProvider: 'groq' | 'openai' | 'none' = 'none'
+  let visionProvider: 'groq' | 'openai' | 'openrouter' | 'none' = 'none'
   const preferOpenAI = meta?.provider === 'openai'
-  const preferOpenRouter = meta?.provider === 'openrouter'
+  let preferOpenRouter = meta?.provider === 'openrouter'
   const groqKeyLooksValid = !!groqKey && /^gsk_[A-Za-z0-9_\-]{10,}/.test(groqKey)
   try { console.log('[analyze] preferOpenAI', preferOpenAI, 'preferOpenRouter', preferOpenRouter) } catch {}
+
+  // Pre-Vision heuristic: if profile is auto, run a quick classifier to detect fundamentals
+  if (promptProfile === 'auto' && (openaiKey || openrouterKey) && files.length > 0) {
+    try {
+      const first = files[0]
+      const buf = await first.arrayBuffer()
+      const b64 = arrayBufferToBase64(buf)
+      const mime = first.type || 'image/png'
+      const imgUrl = `data:${mime};base64,${b64}`
+      const classifyPayload: any = {
+        model: openaiModel,
+        messages: [
+          { role: 'system', content: 'Classify screenshot type. Return ONLY JSON {"kind":"fundamentals"|"technical","confidence":number(0..1)}.' },
+          { role: 'user', content: [ { type: 'text', text: 'Is this primarily earnings/KPI fundamentals (売上/営業益/EPS/YoY/配当 etc.) or trading/technical (板/チャート/SR)? Respond with kind and confidence.' }, { type: 'image_url', image_url: { url: imgUrl } } ] }
+        ],
+        response_format: { type: 'json_object' },
+      }
+      let classifyRes: Response | null = null
+      if (preferOpenRouter && openrouterKey) {
+        if (!openAIModelRequiresDefaultTemp(openaiModel)) classifyPayload.temperature = 0.1
+        classifyRes = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openrouter?endpoint=/v1/chat/completions`, { method:'POST', headers:{ 'content-type':'application/json','x-openrouter-key':openrouterKey }, body: JSON.stringify(classifyPayload) }, { retries: 0, timeoutMs: 10000 })
+      } else if (openaiKey) {
+        if (!openAIModelRequiresDefaultTemp(openaiModel)) classifyPayload.temperature = 0.1
+        classifyRes = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, { method:'POST', headers:{ 'content-type':'application/json','x-api-key':openaiKey }, body: JSON.stringify(classifyPayload) }, { retries: 0, timeoutMs: 8000 })
+      } else if (openrouterKey) {
+        if (!openAIModelRequiresDefaultTemp(openaiModel)) classifyPayload.temperature = 0.1
+        classifyRes = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openrouter?endpoint=/v1/chat/completions`, { method:'POST', headers:{ 'content-type':'application/json','x-openrouter-key':openrouterKey }, body: JSON.stringify(classifyPayload) }, { retries: 0, timeoutMs: 10000 })
+      }
+      const clsData = await classifyRes!.json().catch(() => ({}))
+      const cls = safeJson(clsData?.choices?.[0]?.message?.content ?? '{}')
+      if (cls?.kind === 'fundamentals' && (typeof cls?.confidence === 'number' ? cls.confidence >= 0.6 : true)) {
+        promptProfile = 'fundamentals'
+        pp = getPrompts('fundamentals')
+        if (openrouterKey) {
+          preferOpenRouter = true
+          // iOS（SSE無効時）をざっくり判定: wantsStream=false をiOS相当として扱う
+          openaiModel = wantsStream ? 'anthropic/claude-sonnet-4' : 'google/gemini-2.5-pro'
+        }
+        try { console.log('[analyze] pre-heuristic -> fundamentals, model', openaiModel) } catch {}
+      }
+    } catch {}
+  }
   if (!preferOpenAI && !preferOpenRouter && groqKeyLooksValid) {
     try {
       const res = await fetch(`${originFromReq(req)}/api/proxy/groq?endpoint=/openai/v1/chat/completions`, {
@@ -91,7 +133,47 @@ export async function POST(req: Request) {
       extractionJSON = null
       extractionErr = (e as any)?.message || 'extraction error'
     }
-  } else if (openaiKey) {
+  } else if (preferOpenRouter && openrouterKey) {
+    // OpenRouter path (explicitly selected)
+    try {
+      const visionPayload: any = {
+        model: openaiModel,
+        messages: [
+          { role: 'system', content: pp.vision + (meta?.uiSource ? "\n" + getUiHints(meta.uiSource) : '') },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Extract normalized JSON. Hints: market=${meta?.market ?? 'JP'} timeframe=${meta?.timeframe ?? ''}` },
+              ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+      }
+      if (!openAIModelRequiresDefaultTemp(openaiModel)) visionPayload.temperature = pp.temps.vision
+      const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openrouter?endpoint=/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-openrouter-key': openrouterKey },
+        body: JSON.stringify(visionPayload),
+      })
+      try { console.log('[analyze] vision(openrouter) status', res.status, 'ok', res.ok) } catch {}
+      if (!res.ok) extractionErr = `openrouter vision ${res.status}`
+      const data = await res.json().catch(() => ({}))
+      const content = data?.choices?.[0]?.message?.content ?? '{}'
+      try { console.log('[analyze] vision(openrouter) contentLen', (content || '{}').length) } catch {}
+      extractionJSON = safeJson(content)
+      visionProvider = 'openrouter'
+      const market = (meta?.market ?? 'JP') as any
+      const sr = sanitizeSR(extractionJSON?.levels?.sr ?? {}, market)
+      const ob = normalizeOrderbook(extractionJSON?.orderbook ?? {}, market)
+      const enforced = enforceOrderbookTicks(ob, market)
+      const gaps = analyzeOrderbookGaps({ levels: enforced.levels }, market)
+      extractionJSON = { ...extractionJSON, levels: { ...(extractionJSON?.levels ?? {}), sr }, orderbook: { ...ob, levels: enforced.levels, _tickAdjusted: enforced.adjusted, _irregularGaps: gaps.irregular } }
+    } catch (e) {
+      extractionJSON = null
+      extractionErr = (e as any)?.message || 'extraction error'
+    }
+  } else if (openaiKey && !preferOpenRouter) {
     // OpenAI-only path
     try {
       const visionPayload: any = {
@@ -140,7 +222,7 @@ export async function POST(req: Request) {
       // If extraction is empty and OpenAI/OpenRouter key is available, try fallback
       if ((!extractionJSON || Object.keys(extractionJSON || {}).length === 0) && (openaiKey || (req.headers.get('x-openrouter-key') || ''))) {
         try {
-          const useOR = !openaiKey && !!(req.headers.get('x-openrouter-key') || '')
+          const useOR = (preferOpenRouter && !!(req.headers.get('x-openrouter-key') || '')) || (!openaiKey && !!(req.headers.get('x-openrouter-key') || ''))
           const fallbackPayload: any = {
             model: openaiModel,
             messages: [
@@ -180,7 +262,14 @@ export async function POST(req: Request) {
       }
       send('extraction', { extracted: extractionJSON?.extracted ?? {}, levels: extractionJSON?.levels ?? {}, orderbook: extractionJSON?.orderbook ?? {} })
       progress(55, extractionErr ? 'extraction:error' : 'extraction:done')
-      const { data: final, error: decErr, provider: decisionProvider } = await computeDecision(meta, groqKey, openaiKey, (req.headers.get('x-openrouter-key') || ''), extractionJSON, req)
+      // Decide decision prompt dynamically for auto profile
+      let decisionPromptStr = getPrompts(promptProfile).decision
+      const f = (extractionJSON as any)?.fundamentals || {}
+      if (promptProfile === 'fundamentals' || (promptProfile === 'auto' && Object.keys(f).length > 0)) {
+        decisionPromptStr = getPrompts('fundamentals').decision
+        send('log', { stage: 'profile', mode: 'fundamentals' })
+      }
+      const { data: final, error: decErr, provider: decisionProvider } = await computeDecision(meta, groqKey, openaiKey, (req.headers.get('x-openrouter-key') || ''), extractionJSON, req, decisionPromptStr)
       if (decErr) send('log', { stage: 'decision', error: decErr })
       progress(85, decErr ? 'decision:error' : 'decision:ready')
       const enriched = final ? { ...final, provider: decisionProvider, providers: { vision: visionProvider, decision: decisionProvider } } : final
@@ -197,6 +286,7 @@ export async function POST(req: Request) {
     extracted: extractionJSON?.extracted ?? {},
     sr: extractionJSON?.levels?.sr ?? { support: [], resistance: [] },
     orderbook: extractionJSON?.orderbook ?? {},
+    fundamentals: extractionJSON?.fundamentals ?? {},
   }
   if (!preferOpenAI && !preferOpenRouter && groqKeyLooksValid) {
     try {
@@ -232,7 +322,7 @@ export async function POST(req: Request) {
     }
   }
 
-  if ((preferOpenAI && openaiKey) || (!finalJSON && openaiKey)) {
+  if ((preferOpenAI && openaiKey) || (!finalJSON && openaiKey && !preferOpenRouter)) {
     // Fallback to OpenAI (gpt-4o-mini)
     try {
       const decisionPayload: any = {
@@ -428,10 +518,10 @@ async function fetchWithRetry(url: string, init: RequestInit, opts: { retries?: 
   throw lastErr || new Error('fetchWithRetry failed')
 }
 
-async function computeDecision(meta: any, groqKey: string, openaiKey: string, openrouterKey: string, extractionJSON: any, req: Request): Promise<{ data: any | null, error: string | null, provider: 'groq'|'openai'|'none' }> {
+async function computeDecision(meta: any, groqKey: string, openaiKey: string, openrouterKey: string, extractionJSON: any, req: Request, decisionPromptStr: string = decisionPrompt): Promise<{ data: any | null, error: string | null, provider: 'groq'|'openai'|'openrouter'|'none' }> {
   let finalJSON: any | null = null
   let error: string | null = null
-  let used: 'groq'|'openai'|'none' = 'none'
+  let used: 'groq'|'openai'|'openrouter'|'none' = 'none'
   const selected = (meta?.model ?? meta?.openaiModel) as string | undefined
   const openaiModel = ((selected === 'auto' || !selected) ? defaultOpenAIModel(meta?.profile) : selected) as string
   const preferOpenAI = meta?.provider === 'openai'
@@ -441,6 +531,7 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, op
     extracted: extractionJSON?.extracted ?? {},
     sr: extractionJSON?.levels?.sr ?? { support: [], resistance: [] },
     orderbook: extractionJSON?.orderbook ?? {},
+    fundamentals: extractionJSON?.fundamentals ?? {},
   }
   if (groqKey && !preferOpenAI && !preferOpenRouter) {
     try {
@@ -453,7 +544,7 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, op
         body: JSON.stringify({
           model: 'llama-3.1-70b-versatile',
           messages: [
-            { role: 'system', content: decisionPrompt },
+          { role: 'system', content: decisionPromptStr },
             { role: 'user', content: JSON.stringify(decisionInput) },
           ],
           temperature: 0.3,
@@ -478,62 +569,39 @@ async function computeDecision(meta: any, groqKey: string, openaiKey: string, op
     }
   }
 
-  if ((preferOpenAI && openaiKey) || (!finalJSON && openaiKey)) {
-    try {
-      const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': openaiKey },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [
-            { role: 'system', content: decisionPrompt },
-            { role: 'user', content: JSON.stringify(decisionInput) },
-          ],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      }, { retries: 0, timeoutMs: 15000 })
-      try { console.log('[analyze] decision(openai) status', res.status, 'ok', res.ok) } catch {}
-      if (!res.ok) {
-        error = `openai ${res.status}`
-        finalJSON = null
-      } else {
-        const data = await res.json().catch(() => ({}))
-        const content = data?.choices?.[0]?.message?.content ?? '{}'
-        try { console.log('[analyze] decision(openai) contentLen', (content || '{}').length) } catch {}
-        const raw = safeJson(content)
-        finalJSON = isMeaningful(raw) ? raw : null
-        used = finalJSON ? 'openai' : 'none'
-      }
-    } catch (e) {
-      finalJSON = null
-      error = (e as any)?.message || 'openai decision error'
-    }
+  // Parallel race between OpenAI and OpenRouter for decision if keys are available
+  const decTasks: Array<Promise<{ data: any | null; provider: 'openai' | 'openrouter' }>> = []
+  const decisionPayload = () => {
+    const p: any = { model: openaiModel, messages: [ { role: 'system', content: decisionPromptStr }, { role: 'user', content: JSON.stringify(decisionInput) } ], response_format: { type: 'json_object' } }
+    if (!openAIModelRequiresDefaultTemp(openaiModel)) p.temperature = 0.0
+    return p
   }
-  if (!finalJSON && ((preferOpenRouter && openrouterKey) || openrouterKey)) {
-    try {
-      const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openrouter?endpoint=/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-openrouter-key': openrouterKey },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [
-            { role: 'system', content: decisionPrompt },
-            { role: 'user', content: JSON.stringify(decisionInput) },
-          ],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      }, { retries: 0, timeoutMs: 25000 })
-      if (!res.ok) error = `openrouter ${res.status}`
+  if (openaiKey && !preferOpenRouter) {
+    decTasks.push((async () => {
+      const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openai?endpoint=/v1/chat/completions`, { method:'POST', headers:{ 'content-type':'application/json','x-api-key':openaiKey }, body: JSON.stringify(decisionPayload()) }, { retries: 0, timeoutMs: 12000 })
+      if (!res.ok) throw new Error('openai bad')
       const data = await res.json().catch(() => ({}))
       const content = data?.choices?.[0]?.message?.content ?? '{}'
-      finalJSON = safeJson(content)
-      used = finalJSON ? 'openai' : 'none'
-    } catch (e) {
-      finalJSON = null
-      error = (e as any)?.message || 'openrouter decision error'
-    }
+      const raw = safeJson(content)
+      return { data: isMeaningful(raw) ? raw : raw || null, provider: 'openai' }
+    })())
+  }
+  if (openrouterKey && !preferOpenAI) {
+    decTasks.push((async () => {
+      const res = await fetchWithRetry(`${originFromReq(req)}/api/proxy/openrouter?endpoint=/v1/chat/completions`, { method:'POST', headers:{ 'content-type':'application/json','x-openrouter-key':openrouterKey }, body: JSON.stringify(decisionPayload()) }, { retries: 0, timeoutMs: 16000 })
+      if (!res.ok) throw new Error('openrouter bad')
+      const data = await res.json().catch(() => ({}))
+      const content = data?.choices?.[0]?.message?.content ?? '{}'
+      const raw = safeJson(content)
+      return { data: isMeaningful(raw) ? raw : raw || null, provider: 'openrouter' }
+    })())
+  }
+  if (decTasks.length) {
+    try {
+      const winner = await Promise.race(decTasks)
+      finalJSON = winner?.data ?? null
+      used = finalJSON ? winner.provider : 'none'
+    } catch {}
   }
 
   if (finalJSON) {

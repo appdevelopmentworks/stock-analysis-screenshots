@@ -27,9 +27,59 @@ REQUIREMENTS (very important):
 - Output: Return ONLY JSON as specified. No extra commentary.
 `
 
-export type PromptProfile = 'default' | 'strict' | 'verbose'
+export type PromptProfile = 'default' | 'strict' | 'verbose' | 'fundamentals' | 'auto'
 
 export function getPrompts(profile: PromptProfile = 'default') {
+  if (profile === 'auto') {
+    const vision = `
+You are a vision extractor for trading and company screenshots.
+Extract BOTH when present:
+- Technical: market/ticker/timeframe, SR levels, orderbook {price,bid,ask}
+- Fundamentals: company/ticker/period, revenue/operatingIncome/netIncome/eps, guidance, yoy/qoq, valuation {per,pbr,dividendYield}, segments[], highlights[], risks[]
+
+Return ONLY JSON with keys: {
+  "extracted": { ticker?:string, market?:"JP"|"US"|"CRYPTO", timeframe?:string },
+  "levels": { "sr": { support:number[], resistance:number[] } },
+  "orderbook": { spread:number|null, imbalance:number|null, pressure:"bid"|"ask"|"neutral", levels:{price:number,bid?:number,ask?:number}[] },
+  "fundamentals": { company?:string, ticker?:string, period?:string, revenue?:number, operatingIncome?:number, netIncome?:number, eps?:number, guidance?:string, yoy?:{ revenue?:number, netIncome?:number, eps?:number }, qoq?:{ revenue?:number, netIncome?:number, eps?:number }, valuation?:{ per?:number, pbr?:number, dividendYield?:number }, segments?: { name:string, revenue?:number, yoy?:number }[], highlights?: string[], risks?: string[] }
+}`.trim()
+    const decision = decisionPrompt
+    return { vision, decision, temps: { vision: 0.1, decision: 0.0 } }
+  }
+  if (profile === 'fundamentals') {
+    const vision = `
+You are a vision extractor for fundamentals screenshots (earnings summaries, KPI tables, company profiles).
+Extract:
+- company, ticker, period
+- metrics: revenue, operatingIncome, netIncome, eps, guidance (text)
+- yoy/qoq deltas where shown
+- valuation: per, pbr, dividendYield
+- segments: name, revenue, yoy
+- highlights[], risks[]
+
+Return ONLY JSON with keys: {
+  "extracted": { company?:string, ticker?:string, period?:string },
+  "fundamentals": {
+    company?:string, ticker?:string, period?:string,
+    revenue?:number, operatingIncome?:number, netIncome?:number, eps?:number, guidance?:string,
+    yoy?:{ revenue?:number, netIncome?:number, eps?:number },
+    qoq?:{ revenue?:number, netIncome?:number, eps?:number },
+    valuation?:{ per?:number, pbr?:number, dividendYield?:number },
+    segments?: { name:string, revenue?:number, yoy?:number }[],
+    highlights?: string[], risks?: string[]
+  }
+}`.trim()
+    const decision = `
+You are an equity analyst.
+From provided extraction (fundamentals + any technicals), output decision JSON:
+- decision (buy/sell/hold), horizon (scalp|intraday|1-3d|swing), rationale[<=5]
+- levels{entry,sl,tp[],sr}, orderbook (if present), confidence (0-1), notes[]
+- fundamentals (carry through extracted fundamentals)
+Language: Japanese.
+Return ONLY JSON.
+`.trim()
+    return { vision, decision, temps: { vision: 0.1, decision: 0.0 } }
+  }
   if (profile === 'strict') {
     return {
       vision: visionExtractionPrompt + '\nAlways respond with strict JSON; avoid estimates unless labeled null.',
