@@ -1,45 +1,43 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- App: `app/` (Next.js 15 App Router, Edge API under `app/api/*`). Main page `/`, diagnostics `/tests`.
-- Components: `components/` (UI + feature components). Use PascalCase filenames.
-- Library: `lib/` (prompts, validation, crypto, image utils, UI-detect, schemas, formatting).
-- Public/PWA: `public/` (assets, `manifest.json`), `service-worker.ts`.
-- Docs: `docs/` (requirements/instructions). This guide: `AGENTS.md`.
+- `app/`: Next.js 15 App Router. Pages: `/` (main), `/tests` (smoke), `/result` (mobile result), `/settings`, `/help`. Edge API under `app/api/*`.
+- `components/`: UI + feature components (PascalCase). Examples: `NavBar`, `SettingsSheet`, `ResultPane`, `ui/*`.
+- `lib/`: Typed utilities (prompts, validation, crypto, image, history, schemas, formatting, UI-detect).
+- `public/`: Assets and PWA (`manifest.json`, icons). `service-worker.ts` at repo root.
+- `docs/`: Repo docs (this guide).
 
 ## Build, Test, and Development Commands
-- Dev: `pnpm dev` — run Next.js dev server with HMR.
-- Build: `pnpm build` — create production build (Edge API included).
-- Start: `pnpm start` — serve the production build.
-- Type-check: `npx tsc --noEmit` — strict TypeScript checks.
-- Lint: `pnpm lint` — ESLint (next/core-web-vitals).
-- Browser tests: visit `/tests` while dev server runs.
+- `pnpm dev`: Start dev server with HMR.
+- `pnpm build`: Production build (includes Edge API).
+- `pnpm start`: Serve the production build.
+- `npx tsc --noEmit`: Strict type checks.
+- `pnpm lint`: ESLint (`next/core-web-vitals`).
+- Browser tests: run dev and open `/tests`.
 
 ## Coding Style & Naming Conventions
-- Language: TypeScript (React Server/Client components).
-- Indentation: 2 spaces; target ≤ ~100 chars/line where feasible.
-- Naming: Components in PascalCase; variables/functions in camelCase; routes/assets in kebab-case.
-- Styling: TailwindCSS; theme tokens in `app/globals.css` (e.g., `--background`, `--foreground`).
-- Keep utilities small and typed in `lib/`.
+- Language: TypeScript (Server/Client components). Indent 2 spaces; target ~100 chars/line.
+- Naming: Components PascalCase; vars/functions camelCase; routes/assets kebab-case.
+- Styling: TailwindCSS. Theme tokens in `app/globals.css` (e.g., `--background`, `--foreground`).
+- Keep utilities small, focused, and typed in `lib/`.
 
 ## Testing Guidelines
-- Prefer unit tests for pure utilities first (e.g., `lib/__tests__/*.test.ts`).
-- Avoid network calls in unit tests; mock inputs/outputs.
-- Smoke checks live at `app/tests/page.tsx` (open in the browser).
+- Prefer unit tests for pure utilities (e.g., `lib/__tests__/*.test.ts`).
+- Avoid network I/O; mock inputs/outputs.
+- Use `/tests` page for smoke checks in the browser.
 
 ## Commit & Pull Request Guidelines
-- Commits: use Conventional Commits. Examples:
+- Conventional Commits, e.g.:
   - `feat: auto-switch to fundamentals profile`
   - `fix: skip temperature for gpt-4o family`
   - `chore: tweak dark theme to darkblue`
-- PRs: describe scope/intent, include screenshots or JSON diffs for UI/API, link issues, and add brief testing notes (desktop/mobile, iOS/Android).
+- PRs: describe scope/intent, include screenshots or JSON diffs, link issues, and add testing notes (desktop/mobile).
 
 ## Security & Configuration Tips
-- BYO API keys; never commit credentials. Keys are encrypted client‑side (PIN) and stored only in the browser.
-- Proxies: `/api/proxy/{openrouter,openai,groq}` pass keys via headers (e.g., `X-OpenRouter-Key`, `X-OpenAI-Key`, `X-API-Key`).
-- No server persistence; images are transient. Optional `NEXT_PUBLIC_SENTRY_DSN` for browser error capture.
+- BYO API keys; never commit credentials. Keys are encrypted client‑side (PIN) and stored in the browser only.
+- Proxies: `/api/proxy/{openrouter,openai}`; send keys via headers (`X-OpenRouter-Key`, `X-OpenAI-Key`). No server persistence; optional `NEXT_PUBLIC_SENTRY_DSN` for browser errors.
 
-## Architecture Overview (Quick)
+## Architecture Overview
 - Pipeline: image upload → vision extraction → normalization/validation → decision JSON → formatted output.
-- Providers: OpenRouter (Claude/Gemini), OpenAI, Groq. Auto profile can switch to fundamentals based on screenshot content.
-
+- Providers: OpenRouter + OpenAI supported. Groq endpoints exist but are disabled in the UI.
+- Mobile UX: auto-redirect to `/result?id=...` on small screens; top nav provides 「ホーム / 設定 / 使い方」.
